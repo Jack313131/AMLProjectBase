@@ -70,13 +70,16 @@ def load_gdrive_file(file_id, save_dir, ending='zip'):
     return filename
 
 
-def get_softmax(network, image, transform=None, as_numpy=True):
+def get_softmax(network, image, transform=None, as_numpy=True, temperature=-1.0):
     if transform is None:
         transform = Compose([ToTensor(), Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
     x = transform(image)
     x = x.unsqueeze_(0).cuda()
     with torch.no_grad():
         y = network(x)
+
+    if temperature is not -1.0:
+        y = y/temperature    
     probs = F.softmax(y, 1)
     if as_numpy:
         probs = probs.data.cpu().numpy()[0].astype("float32")
