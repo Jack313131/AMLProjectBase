@@ -79,7 +79,7 @@ def get_softmax(network, image, transform=None, as_numpy=True, temperature=-1.0)
         y = network(x)
 
     if temperature is not -1.0:
-        y = y/temperature    
+        y = y/temperature
     probs = F.softmax(y, 1)
     if as_numpy:
         probs = probs.data.cpu().numpy()[0].astype("float32")

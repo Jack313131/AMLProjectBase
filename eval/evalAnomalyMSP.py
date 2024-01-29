@@ -46,7 +46,7 @@ def main():
         nargs="+",
         help="A list of space separated input images; "
         "or a single glob pattern such as 'directory/*.jpg'",
-    )  
+    )
     parser.add_argument('--loadDir',default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
     parser.add_argument('--loadModel', default="erfnet.py")
@@ -55,8 +55,6 @@ def main():
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
-    parser.add_argument("--type", default="MaxLogit")
-    parser.add_argument("--temperature", default=1.0)
     args = parser.parse_args()
     anomaly_score_list = []
     ood_gts_list = []
@@ -139,20 +137,14 @@ def main():
         # 2b ) .cpu() sposta il tensore sulla CPU (se era su una GPU).
         # 2c ) .numpy() converte il tensore PyTorch in un array NumPy. Questo è spesso fatto per l'elaborazione post-processing o per l'analisi, poiché NumPy offre una vasta gamma di operazioni e funzioni comode.
         # 3 ) np.max(..., axis=0): Calcola il valore massimo lungo l'asse specificato. axis =0 indica che il massimo viene calcolato lungo il primo asse (che, dopo il .squeeze(0), rappresenta il primo asse dell'output del modello). In pratica, questo significa che per ogni posizione [H, W] nel risultato, viene preso il valore massimo tra tutte le classi previste [C] (ovvero per ogni pixel viene preso la classe più probabile)
-        if args.type.casefold().replace(" ", "") == "maxentropy":
-            eps = 1e-8
-            probs = torch.nn.functional.softmax(result, 1)  # result = model(images), F = torch.nn.functional
-            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),torch.log(torch.tensor(probs.shape[1]) + eps))
-            anomaly_result = entropy.data.cpu().numpy()[0].astype("float32")
-        if args.type.casefold().replace(" ", "") == "msp":
-            temperature = args.temperature
-            scaledresult = result / temperature
-            probs = torch.nn.functional.softmax(scaledresult, 1)  # result = model(images), F = torch.nn.functional
-            # conf,  = torch.max(probs, dim=1)
-            # anomaly_result = 1 - conf.data.squeeze(0).cpu().numpy() #sono la stessa cosa
-            anomaly_result = 1 - np.max(probs.squeeze(0).data.cpu().numpy(), axis=0)
-        if args.type.casefold().replace(" ", "") == "maxlogit":
-            anomaly_result = 1.0 - np.max(result.squeeze(0).data.cpu().numpy(), axis=0)
+        temperature = 1
+        scaledresult = result / temperature
+        probs = torch.nn.functional.softmax(scaledresult, 1) #result = model(images), F = torch.nn.functional
+        #conf,  = torch.max(probs, dim=1)
+        #anomaly_result = 1 - conf.data.squeeze(0).cpu().numpy() #sono la stessa cosa
+        anomaly_result = 1 - np.max(probs.squeeze(0).data.cpu().numpy(), axis=0)
+
+        #print(f"anomaly_result : {anomaly_result} ")
 
         # Viene calcolato il path del immagine di ground truth
         pathGT = path.replace("images", "labels_masks")
@@ -218,25 +210,39 @@ def main():
     ood_gts = np.array(ood_gts_list)
     anomaly_scores = np.array(anomaly_score_list)
 
+
+
     # ood_mask è una maschera booleana che identifica dove le etichette di ground truth sono uguali a 1 (presumibilmente indicando anomalie).
     ood_mask = (ood_gts == 1)
     # ind_mask è una maschera booleana per le etichette di ground truth uguali a 0 (presumibilmente indicando non-anomalie o dati in-distribution).
     ind_mask = (ood_gts == 0)
+
+    #print(f"ood_mask : {ood_mask}")
+    #print(f"ind_mask : {ind_mask}")
 
     # ood_out contiene i punteggi di anomalia corrispondenti alle anomalie rilevate (dove ood_gts è 1).
     ood_out = anomaly_scores[ood_mask]
     # ind_out contiene i punteggi di anomalia per i dati non-anomali (dove ood_gts è 0).
     ind_out = anomaly_scores[ind_mask]
 
+    #print(f"ood_out : {ood_out}")
+    #print(f"ind_out : {ind_out}")
+
     # ood_label è un array di 1, che rappresenta le etichette per i dati anomali.
     # ind_label è un array di 0, che rappresenta le etichette per i dati non-anomali.
     ood_label = np.ones(len(ood_out))
     ind_label = np.zeros(len(ind_out))
 
+    #print(f"ood_label : {ood_label}")
+    #print(f"ind_label : {ind_label}")
+
     # val_out contiene tutti i punteggi di anomalia (sia per dati anomali che non).
     # val_label contiene tutte le etichette corrispondenti (0 per non-anomali, 1 per anomali).
     val_out = np.concatenate((ind_out, ood_out))
     val_label = np.concatenate((ind_label, ood_label))
+
+    #print(f"val_label : {val_label}")
+    #print(f"val_out : {val_out}")
 
     # prc_auc calcola l'AUC (Area Under the Curve) per la Precision-Recall Curve, una metrica comune per valutare la performance dei modelli in compiti di classificazione.
     prc_auc = average_precision_score(val_label, val_out)

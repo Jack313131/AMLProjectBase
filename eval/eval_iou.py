@@ -122,7 +122,20 @@ def main(args):
         with torch.no_grad():
             outputs = model(inputs)
 
-        iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, labels)
+        finalOutput = outputs
+
+        if args.typeConfidence.casefold().replace(" ", "") == "msp":
+            temperature = args.temperature
+            scaledresult = outputs / temperature
+            probs = torch.nn.functional.softmax(scaledresult, 1)  # result = model(images), F = torch.nn.functional
+            finalOutput = outputs.float() * probs
+        if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
+            eps = 1e-10
+            probs = torch.nn.functional.softmax(outputs, dim=1)
+            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),torch.log(torch.tensor(probs.shape[1]) + eps))
+            finalOutput = outputs.float() * entropy
+
+        iouEvalVal.addBatch(finalOutput.max(1)[1].unsqueeze(1).data, labels)
 
         filenameSave = filename[0].split("leftImg8bit/")[1] 
 
@@ -177,5 +190,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
+    parser.add_argument('--typeConfidence', default='MaxLogit')
+    parser.add_argument("--temperature", default = 1.0)
 
     main(parser.parse_args())
