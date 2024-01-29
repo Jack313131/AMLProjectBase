@@ -103,15 +103,17 @@ class CrossEntropyLoss2d(torch.nn.Module):
     # In questo modo, il modello può prevedere la classe di ciascun pixel per ogni immagine nel batch.
     # CrossEntropyLoss2d è ideale per questo scopo perché calcola una perdita per ogni pixel dell'immagine, basandosi su quanto bene il modello predice la classe di quel pixel rispetto alla classe effettiva.
 
-    def __init__(self, weight=None):
+    def __init__(self, weight=None,ignores_index=None):
         super().__init__()
 
         # Questo inizializza la Negative Log Likelihood Loss in 2D (NLLLoss2d), questa è una funzione di perdita utilizzata in problemi di classificazione e segmentazione delle immagini, dove l'obiettivo è classificare ciascun pixel dell'immagine
         # NLLLoss lavora con log-probabilità, non con probabilità dirette. Si presume che l'output del modello (le previsioni) siano log-probabilità di ciascuna classe. Queste log-probabilità sono tipicamente ottenute applicando la funzione log_softmax ai logits (l'output grezzo del modello prima dell'applicazione di una funzione di attivazione come softmax).
         # Nella segmentazione delle immagini, hai una mappa di etichettatura (o immagine target) dove ogni pixel ha una etichetta di classe assegnata. La NLLLoss in 2D calcola la perdita per ogni pixel individualmente. Per un dato pixel, la perdita è il negativo del logaritmo della probabilità predetta per la classe vera di quel pixel. Matematicamente, per un pixel con classe vera c,
         # se pc è la probabilità logaritmica predetta per quella classe, la perdita per quel pixel è -pc
-
-        self.loss = torch.nn.NLLLoss2d(weight,ignore_index=1)
+        if ignores_index is not None:
+            self.loss = torch.nn.NLLLoss2d(weight,ignore_index=ignores_index)
+        else:
+            self.loss = torch.nn.NLLLoss2d(weight)
 
     def forward(self, outputs, targets):
         # outputs sono le previsioni date dal modello (output sono in forma di logits, ossia valori grezzi non normalizzati, per ciascuna classe e per ogni pixel.), mentre target il ground truth (Queste sono le etichette vere che si desidera che il modello impari a predire.)
@@ -196,7 +198,7 @@ def train(args, model, enc=False):
 
     if args.cuda:
         weight = weight.cuda()
-    criterion = CrossEntropyLoss2d(weight)
+    criterion = CrossEntropyLoss2d(weight,ignores_index=255)
     # print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
