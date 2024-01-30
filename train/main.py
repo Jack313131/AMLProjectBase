@@ -525,7 +525,10 @@ def main(args):
     # Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(NUM_CLASSES)
+    if "BiSeNet" in args.model:
+        model = model_file.BiSeNet(NUM_CLASSES,'resnet18')
+    if "erfnet" in args.model:
+        model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:

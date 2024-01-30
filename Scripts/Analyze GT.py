@@ -1,27 +1,31 @@
+import os
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Carica l'immagine di ground truth
-gt_image_path = '/Users/jacopospaccatrosi/Downloads/RoadAnomaly_jpg/frames/animals04_17_animal_casualties_so_far_in_2006.labels/labels_semantic.png'
-gt_image = Image.open(gt_image_path)
+# Percorso della directory contenente le immagini di ground truth
+gt_images_directory = '/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AMLProjectBase/dataset2/Validation_Dataset/RoadAnomaly/labels_masks'
 
-# Converti l'immagine in un array numpy per analizzarla
-gt_array = np.array(gt_image)
+# Elenco di tutti i file nella directory
+gt_image_files = os.listdir(gt_images_directory)
 
-# Visualizza l'immagine e l'istogramma dei valori dei pixel
-fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+# Cicla su ogni file di immagine
+for gt_image_file in gt_image_files:
+    gt_image_path = os.path.join(gt_images_directory, gt_image_file)
+    gt_image = Image.open(gt_image_path)
+    gt_array = np.array(gt_image)
 
-# Immagine
-axs[0].imshow(gt_image, cmap='gray')
-axs[0].axis('off')  # Nasconde gli assi
-axs[0].set_title('Ground Truth Image')
+    try:
+        # Visualizza l'immagine e l'istogramma dei valori dei pixel
+        fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+        axs[0].imshow(gt_image, cmap='gray')
+        axs[0].axis('off')
+        axs[0].set_title(f'Ground Truth Image - {gt_image_file}')
+        axs[1].hist(gt_array.flatten(), bins=30)
+        axs[1].set_title('Pixel Value Distribution')
+        plt.show()
+    except:
+        continue
 
-# Istogramma
-axs[1].hist(gt_array.flatten(), bins=30)
-axs[1].set_title('Pixel Value Distribution')
-
-plt.show()
-
-# Controlla anche se l'immagine è effettivamente in scala di grigi
-print(f"Unique pixel values: {np.unique(gt_array)}")
+    # Stampa i valori unici dei pixel
+    print(f"Unique pixel values in {gt_image_file}: {np.unique(gt_array)}")
