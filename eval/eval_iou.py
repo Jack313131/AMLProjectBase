@@ -60,6 +60,8 @@ target_transform_cityscapes = Compose([
 
 def main(args):
 
+    print(f"Evaluation of mIoU using the metrics : {args.typeConfidence}")
+
     modelpath = args.loadDir + args.loadModel
     weightspath = args.loadDir + args.loadWeights
 
@@ -122,24 +124,28 @@ def main(args):
         with torch.no_grad():
             outputs = model(inputs)
 
-        finalOutput = outputs
+        finalOutput = outputs.max(1)[1].unsqueeze(1)
 
         if args.typeConfidence.casefold().replace(" ", "") == "msp":
             temperature = args.temperature
             scaledresult = outputs / temperature
             probs = torch.nn.functional.softmax(scaledresult, 1)  # result = model(images), F = torch.nn.functional
-            finalOutput = outputs.float() * probs
+            _, predicted_classes = torch.max(probs, dim=1)
+            finalOutput = predicted_classes.unsqueeze(1)
         if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
             eps = 1e-10
             probs = torch.nn.functional.softmax(outputs, dim=1)
             entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),torch.log(torch.tensor(probs.shape[1]) + eps))
-            finalOutput = outputs.float() * entropy
+            confidence = 1 - entropy
+            weighted_output = probs * confidence.unsqueeze(1)
+            _, predicted_classes = torch.max(weighted_output, dim=1)
+            finalOutput = predicted_classes.unsqueeze(1)
 
-        iouEvalVal.addBatch(finalOutput.max(1)[1].unsqueeze(1).data, labels)
+        iouEvalVal.addBatch(finalOutput.data, labels)
 
-        filenameSave = filename[0].split("leftImg8bit/")[1] 
+        filenameSave = filename[0].split("leftImg8bit/")[1]
 
-        print (step, filenameSave)
+        #print (step, filenameSave)
 
 
     iouVal, iou_classes = iouEvalVal.getIoU()
@@ -187,7 +193,7 @@ if __name__ == '__main__':
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--subset', default="val")  #can be val or train (must have labels)
     parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/cityscapes/")
-    parser.add_argument('--num-workers', type=int, default=4)
+    parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--typeConfidence', default='MaxLogit')

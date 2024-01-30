@@ -111,11 +111,13 @@ class CrossEntropyLoss2d(torch.nn.Module):
         # Nella segmentazione delle immagini, hai una mappa di etichettatura (o immagine target) dove ogni pixel ha una etichetta di classe assegnata. La NLLLoss in 2D calcola la perdita per ogni pixel individualmente. Per un dato pixel, la perdita è il negativo del logaritmo della probabilità predetta per la classe vera di quel pixel. Matematicamente, per un pixel con classe vera c,
         # se pc è la probabilità logaritmica predetta per quella classe, la perdita per quel pixel è -pc
         if ignores_index is not None:
-            self.loss = torch.nn.NLLLoss2d(weight,ignore_index=ignores_index)
+            self.loss = torch.nn.NLLLoss(weight,ignore_index=ignores_index)
         else:
-            self.loss = torch.nn.NLLLoss2d(weight)
+            self.loss = torch.nn.NLLLoss(weight)
 
     def forward(self, outputs, targets):
+        outputs = outputs.to(torch.float16)
+        targets = targets.to(torch.float16)
         # outputs sono le previsioni date dal modello (output sono in forma di logits, ossia valori grezzi non normalizzati, per ciascuna classe e per ogni pixel.), mentre target il ground truth (Queste sono le etichette vere che si desidera che il modello impari a predire.)
         # prima di passare al confronto tra previsioni del modello e ground truth, la predizione del modello viene passata ad una softmax per ottenere un vettore di probabilità, dove ogni valore rappresenta la probabilità che un dato pixel appartenga a una particolare classe.
         # Poi, self.loss, che è la funzione NLLLoss2d, viene applicata per calcolare la perdita effettiva. Questa funzione calcola la log likelihood negativa tra le previsioni (dopo aver applicato log_softmax) e le etichette vere.
@@ -273,10 +275,6 @@ def train(args, model, enc=False):
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
-        # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
-        # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
-        scheduler.step(epoch)  ## scheduler 2
-
         epoch_loss = []
         time_train = []
 
@@ -315,17 +313,11 @@ def train(args, model, enc=False):
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
             # calcolare i gradienti durante la backpropagation.Da PyTorch 0.4 in poi, la funzionalità di Variable è stata integrata direttamente nei tensori, ora, ogni tensore ha un attributo requires_grad che, se impostato su True, abilita il calcolo del gradiente per quel tensore in modo simile a come funzionavano le Variable.
-            if torch.__version__ >= 0.4 and torch.is_tensor(inputs) == True:
-                images.requires_grad_(True)
-                inputs = images
-            else:
-                inputs = Variable(images)
+            images.requires_grad_(True)
+            inputs = images
 
-            if torch.__version__ >= 0.4 and torch.is_tensor(labels) == True:
-                labels.requires_grad_(True)
-                targets = labels
-            else:
-                targets = Variable(labels)
+            #labels.requires_grad_(True)
+            targets = labels
 
             outputs = model(inputs, only_encode=enc)
 
@@ -343,6 +335,10 @@ def train(args, model, enc=False):
 
             #Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
+
+            # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
+            # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
+            scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
             epoch_loss.append(loss.data[0])
@@ -622,8 +618,8 @@ if __name__ == '__main__':
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
-    parser.add_argument('--num-workers', type=int, default=4)
-    parser.add_argument('--batch-size', type=int, default=6)
+    parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
+    parser.add_argument('--batch-size', type=int, default=3)
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int, default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
