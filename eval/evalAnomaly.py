@@ -125,7 +125,7 @@ def main():
         images = images.permute(0,3,1,2)
         # Il modello viene eseguito sulle immagini senza calcolare i gradienti (perché è in fase di valutazione, non di addestramento).
         with torch.no_grad():
-            result = model(images)
+            result = model(images) #[batch_size, num_classes, height, width]
 
         # L'istruzione sotto non effettua un confronto con il ground truth, ma piuttosto valuta quanto il modello è sicuro della sua predizione. Questo calcolo fornisce un punteggio di anomalia basato sulla confidenza della previsione del modello per ciascun pixel, ma non si confronta direttamente con le etichette reali o il ground truth.
         # Questo calcolo è indipendente dal ground truth. Non sta valutando l'accuratezza o la precisione del modello rispetto alle etichette reali. Piuttosto, sta valutando quanto il modello è "sicuro" nelle sue previsioni, indipendentemente dal fatto che queste siano corrette o meno.
