@@ -1,12 +1,13 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os
-import cv2
+#import cv2
 import glob
 import torch
 import random
 from PIL import Image
 import numpy as np
 from erfnet import ERFNet
+from BiSeNetV1 import BiSeNetV1
 import os.path as osp
 from argparse import ArgumentParser
 from ood_metrics import fpr_at_95_tpr, calc_metrics, plot_roc, plot_pr, plot_barcode
@@ -73,7 +74,10 @@ def main():
     print("Loading model: " + modelpath)
     print("Loading weights: " + weightspath)
 
-    model = ERFNet(NUM_CLASSES)
+    if "BiSeNet" in args.loadModel:
+        model = BiSeNetV1(NUM_CLASSES, 'eval')
+    if "erfnet" in args.loadModel:
+        model = ERFNet(NUM_CLASSES)
 
     if (not args.cpu):
         model = torch.nn.DataParallel(model).cuda()
