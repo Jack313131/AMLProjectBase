@@ -85,6 +85,8 @@ class MyCoTransform(object):
             target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
 
         input = ToTensor()(input)
+        normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        input = normalize(input)
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(
                 target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
@@ -116,8 +118,6 @@ class CrossEntropyLoss2d(torch.nn.Module):
             self.loss = torch.nn.NLLLoss(weight)
 
     def forward(self, outputs, targets):
-        outputs = outputs.to(torch.float16)
-        targets = targets.to(torch.float16)
         # outputs sono le previsioni date dal modello (output sono in forma di logits, ossia valori grezzi non normalizzati, per ciascuna classe e per ogni pixel.), mentre target il ground truth (Queste sono le etichette vere che si desidera che il modello impari a predire.)
         # prima di passare al confronto tra previsioni del modello e ground truth, la predizione del modello viene passata ad una softmax per ottenere un vettore di probabilità, dove ogni valore rappresenta la probabilità che un dato pixel appartenga a una particolare classe.
         # Poi, self.loss, che è la funzione NLLLoss2d, viene applicata per calcolare la perdita effettiva. Questa funzione calcola la log likelihood negativa tra le previsioni (dopo aver applicato log_softmax) e le etichette vere.
@@ -319,7 +319,11 @@ def train(args, model, enc=False):
             #labels.requires_grad_(True)
             targets = labels
 
-            outputs = model(inputs, only_encode=enc)
+            if "BiSeNet" in args.model:
+                outputs = model(inputs)
+                outputs = outputs[0]
+            if "erfnet" in args.model:
+                outputs = model(inputs, only_encode=enc)
 
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
@@ -341,7 +345,7 @@ def train(args, model, enc=False):
             scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
-            epoch_loss.append(loss.data[0])
+            epoch_loss.append(loss.item())
             time_train.append(time.time() - start_time)
 
             if (doIouTrain):
@@ -390,32 +394,19 @@ def train(args, model, enc=False):
             iouEvalVal = iouEval(NUM_CLASSES)
 
         for step, (images, labels) in enumerate(loader_val):
-            #Con l'integrazione delle funzionalità di Variable direttamente nei tensori in PyTorch 0.4 e versioni successive, l'uso di volatile è stato deprecato.
-            #Al suo posto, PyTorch ha introdotto un modo più intuitivo e meno soggetto a errori per gestire il calcolo dei gradienti: il contesto with torch.no_grad():
-            #Quando si eseguono operazioni all'interno di un blocco with torch.no_grad():, PyTorch non traccia, calcola o memorizza gradienti. Questo riduce l'uso della memoria e accelera i calcoli quando i gradienti non sono necessari, come appunto durante l'inferenza o il test.
+            # Con l'integrazione delle funzionalità di Variable direttamente nei tensori in PyTorch 0.4 e versioni successive, l'uso di volatile è stato deprecato.
+            # Al suo posto, PyTorch ha introdotto un modo più intuitivo e meno soggetto a errori per gestire il calcolo dei gradienti: il contesto with torch.no_grad():
+            # Quando si eseguono operazioni all'interno di un blocco with torch.no_grad():, PyTorch non traccia, calcola o memorizza gradienti. Questo riduce l'uso della memoria e accelera i calcoli quando i gradienti non sono necessari, come appunto durante l'inferenza o il test.
             with torch.no_grad():
                 start_time = time.time()
                 if args.cuda:
                     images = images.cuda()
                     labels = labels.cuda()
 
-                # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
-                # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
-                # calcolare i gradienti durante la backpropagation.Da PyTorch 0.4 in poi, la funzionalità di Variable è stata integrata direttamente nei tensori, ora, ogni tensore ha un attributo requires_grad che, se impostato su True, abilita il calcolo del gradiente per quel tensore in modo simile a come funzionavano le Variable.
-                if torch.__version__ >= 0.4 and torch.is_tensor(images) == True:
-                    images.requires_grad_(True)
-                    inputs = images
-                else:
-                    #Impostando volatile=True su una Variable, si indicava a PyTorch di non tracciare le operazioni su quella variabile nel grafo computazionale.
-                    #Questo significava che il framework non avrebbe calcolato gradienti per quella variabile durante la backpropagation.
-                    #Questo era particolarmente utile per ridurre l'uso della memoria durante l'inferenza, perché i gradienti non erano necessari in quella fase.
-                    inputs = Variable(images,volatile=True)
+                images.requires_grad_(True)
+                inputs = images
 
-                if torch.__version__ >= 0.4 and torch.is_tensor(labels) == True:
-                    labels.requires_grad_(True)
-                    targets = labels
-                else:
-                    targets = Variable(labels,volatile=True)
+                targets = labels
 
                 outputs = model(inputs, only_encode=enc)
 
@@ -501,7 +492,7 @@ def train(args, model, enc=False):
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
-            epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+                epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -600,9 +591,12 @@ def main(args):
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        else:
+        elif "erfnet" in args.model:
             pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
+        if "BiSeNet" in args.model:
+            model = model_file.BiSeNet(NUM_CLASSES, 'resnet18')
+        if "erfnet" in args.model:
+            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -613,7 +607,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true',
-                        default=False)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
+                        default=True)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
 

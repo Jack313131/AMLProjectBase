@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from train.build_contextpath import build_contextpath
+from build_contextpath import build_contextpath
 import warnings
 warnings.filterwarnings(action='ignore')
 
