@@ -525,6 +525,8 @@ def train(args, model, enc=False):
             current_acc = -average_epoch_loss_val
         else:
             current_acc = iouVal
+
+        print(f"Current Acc : {current_acc} - Best Acc : {best_acc}")
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
         if enc:
@@ -693,7 +695,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
-    parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
+    parser.add_argument('--epochs-save', type=int, default=1)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
