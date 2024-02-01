@@ -240,8 +240,8 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
-    # optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
+    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
+    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=0)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
@@ -274,9 +274,9 @@ def train(args, model, enc=False):
     # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
     # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
 
-    # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -410,7 +410,7 @@ def train(args, model, enc=False):
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
-            scheduler.step()  ## scheduler 2
+            scheduler.step(loss.item())  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
             epoch_loss.append(loss.item())
@@ -476,10 +476,15 @@ def train(args, model, enc=False):
 
                 targets = labels
 
-                outputs = model(inputs, only_encode=enc)
+                if "BiSeNet" in args.model:
+                    outputs = model(inputs)
+                    outputs = outputs[0]
+                    outputs = outputs.float()
+                if "erfnet" in args.model:
+                    outputs = model(inputs, only_encode=enc)
 
                 loss = criterion(outputs, targets[:, 0])
-                epoch_loss_val.append(loss.data[0])
+                epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
                 # Add batch to calculate TP, FP and FN for iou estimation
@@ -585,7 +590,7 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     if "BiSeNet" in args.model:
-        model = model_file.BiSeNet(NUM_CLASSES, 'resnet18')
+        model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model:
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
@@ -662,7 +667,7 @@ def main(args):
         elif "erfnet" in args.model:
             pretrainedEnc = next(model.children()).encoder
         if "BiSeNet" in args.model:
-            model = model_file.BiSeNet(NUM_CLASSES, 'resnet18')
+            model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if "erfnet" in args.model:
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
@@ -684,7 +689,7 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
-    parser.add_argument('--batch-size', type=int, default=1)
+    parser.add_argument('--batch-size', type=int, default=6)
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)

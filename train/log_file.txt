@@ -1,0 +1,300 @@
+Epoch : 1 and step : 152 and Batch Size: 2
+Input stage : tensor([[[[ 2.2489,  2.2489,  2.2489,  ..., -0.7822, -2.1179, -2.1179],
+          [ 2.2489,  2.2489,  2.2489,  ..., -0.6281, -2.1179, -2.1179],
+          [ 2.2489,  2.2489,  2.2489,  ..., -1.3987, -2.1179, -2.1179],
+          ...,
+          [-1.0219, -1.0390, -1.0390,  ..., -1.0733, -2.1179, -2.1179],
+          [-1.1247, -1.1247, -1.1247,  ..., -1.0733, -2.1179, -2.1179],
+          [-2.1179, -2.1179, -2.1179,  ..., -2.1179, -2.1179, -2.1179]],
+
+         [[ 2.4286,  2.4286,  2.4286,  ..., -0.1625, -2.0357, -2.0357],
+          [ 2.4286,  2.4286,  2.4286,  ..., -0.5126, -2.0357, -2.0357],
+          [ 2.4286,  2.4286,  2.4286,  ..., -1.3354, -2.0357, -2.0357],
+          ...,
+          [-0.6877, -0.7227, -0.7402,  ..., -0.7927, -2.0357, -2.0357],
+          [-0.8452, -0.8452, -0.8452,  ..., -0.7927, -2.0357, -2.0357],
+          [-2.0357, -2.0357, -2.0357,  ..., -2.0357, -2.0357, -2.0357]],
+
+         [[ 2.6400,  2.6400,  2.6400,  ...,  0.4788, -1.8044, -1.8044],
+          [ 2.6400,  2.6400,  2.6400,  ...,  0.0431, -1.8044, -1.8044],
+          [ 2.6400,  2.6400,  2.6400,  ..., -1.2467, -1.8044, -1.8044],
+          ...,
+          [-0.6193, -0.6367, -0.6367,  ..., -0.7413, -1.8044, -1.8044],
+          [-0.6890, -0.6890, -0.6890,  ..., -0.7413, -1.8044, -1.8044],
+          [-1.8044, -1.8044, -1.8044,  ..., -1.8044, -1.8044, -1.8044]]],
+
+
+        [[[-1.7754, -1.7583, -1.7412,  ..., -1.7583, -2.1179, -2.1179],
+          [-1.7583, -1.7583, -1.7412,  ..., -1.7412, -2.1179, -2.1179],
+          [-1.7412, -1.7583, -1.7412,  ..., -1.7069, -2.1179, -2.1179],
+          ...,
+          [-0.5596, -0.6965, -0.6109,  ..., -0.7993, -2.1179, -2.1179],
+          [-2.1179, -2.1179, -2.1179,  ..., -2.1179, -2.1179, -2.1179],
+          [-2.1179, -2.1179, -2.1179,  ..., -2.1179, -2.1179, -2.1179]],
+
+         [[-1.5280, -1.4930, -1.4930,  ..., -1.4930, -2.0357, -2.0357],
+          [-1.4755, -1.4755, -1.4755,  ..., -1.4755, -2.0357, -2.0357],
+          [-1.4930, -1.4930, -1.4755,  ..., -1.4580, -2.0357, -2.0357],
+          ...,
+          [-0.1625, -0.2150, -0.1275,  ..., -0.4426, -2.0357, -2.0357],
+          [-2.0357, -2.0357, -2.0357,  ..., -2.0357, -2.0357, -2.0357],
+          [-2.0357, -2.0357, -2.0357,  ..., -2.0357, -2.0357, -2.0357]],
+
+         [[-1.4384, -1.4210, -1.4210,  ..., -1.4036, -1.8044, -1.8044],
+          [-1.4210, -1.4210, -1.4210,  ..., -1.3861, -1.8044, -1.8044],
+          [-1.4210, -1.4210, -1.4210,  ..., -1.3513, -1.8044, -1.8044],
+          ...,
+          [-0.2184, -0.3055, -0.1835,  ..., -0.3927, -1.8044, -1.8044],
+          [-1.8044, -1.8044, -1.8044,  ..., -1.8044, -1.8044, -1.8044],
+          [-1.8044, -1.8044, -1.8044,  ..., -1.8044, -1.8044, -1.8044]]]],
+       requires_grad=True)
+Target stage : tensor([[[[19, 19, 19,  ..., 19, 19, 19],
+          [19, 19, 19,  ...,  2,  2, 19],
+          [19, 19, 19,  ...,  2,  2, 19],
+          ...,
+          [19, 19, 19,  ..., 19, 19, 19],
+          [ 0,  0,  0,  ...,  0,  0,  0],
+          [ 0,  0,  0,  ...,  0,  0,  0]]],
+
+
+        [[[19, 19, 19,  ..., 19, 19, 19],
+          [19, 19, 19,  ..., 19, 19, 19],
+          [19, 19, 19,  ..., 19, 19, 19],
+          ...,
+          [19, 19, 19,  ..., 19, 19, 19],
+          [19, 19, 19,  ..., 19, 19, 19],
+          [19, 19, 19,  ..., 19, 19, 19]]]])
+
+Verifying the present of complex number: 
+
+Verifying the present of NaN or Inf number: 
+
+
+cp.resnet.conv1.weight - mean: 0.00029486604034900665, std: 0.12975189089775085
+Gradients for cp.resnet.conv1.weight: mean=-0.0006600175402127206, std=0.0019078543409705162
+cp.resnet.bn1.weight - mean: 0.25761309266090393, std: 0.12291224300861359
+Gradients for cp.resnet.bn1.weight: mean=-7.424499199260026e-05, std=0.008095014840364456
+cp.resnet.bn1.bias - mean: 0.18051663041114807, std: 0.2991252839565277
+Gradients for cp.resnet.bn1.bias: mean=0.00016450881958007812, std=0.0016445964574813843
+cp.resnet.layer1.0.conv1.weight - mean: -0.003125268965959549, std: 0.053541701287031174
+Gradients for cp.resnet.layer1.0.conv1.weight: mean=3.233150710002519e-05, std=0.0006080977036617696
+cp.resnet.layer1.0.bn1.weight - mean: 0.33998769521713257, std: 0.12490541487932205
+Gradients for cp.resnet.layer1.0.bn1.weight: mean=-0.0002030846371781081, std=0.003106082323938608
+cp.resnet.layer1.0.bn1.bias - mean: -0.03342762961983681, std: 0.20969471335411072
+Gradients for cp.resnet.layer1.0.bn1.bias: mean=-0.00014797387120779604, std=0.0035371396224945784
+cp.resnet.layer1.0.conv2.weight - mean: -0.0007543693645857275, std: 0.04538581147789955
+Gradients for cp.resnet.layer1.0.conv2.weight: mean=1.1468005141068716e-05, std=0.0005303230136632919
+cp.resnet.layer1.0.bn2.weight - mean: 0.33299046754837036, std: 0.12282732129096985
+Gradients for cp.resnet.layer1.0.bn2.weight: mean=0.00012079015141353011, std=0.003719994332641363
+cp.resnet.layer1.0.bn2.bias - mean: 0.0031885351054370403, std: 0.20070916414260864
+Gradients for cp.resnet.layer1.0.bn2.bias: mean=0.00010821851901710033, std=0.0013435535365715623
+cp.resnet.layer1.1.conv1.weight - mean: -0.0024761222302913666, std: 0.05100959539413452
+Gradients for cp.resnet.layer1.1.conv1.weight: mean=1.6998463252093643e-05, std=0.0004927947302348912
+cp.resnet.layer1.1.bn1.weight - mean: 0.32872265577316284, std: 0.0699348896741867
+Gradients for cp.resnet.layer1.1.bn1.weight: mean=-5.733100260840729e-05, std=0.002305026864632964
+cp.resnet.layer1.1.bn1.bias - mean: -0.08296763896942139, std: 0.1671961098909378
+Gradients for cp.resnet.layer1.1.bn1.bias: mean=-0.00032781134359538555, std=0.0017865695990622044
+cp.resnet.layer1.1.conv2.weight - mean: -0.001188400317914784, std: 0.04414917156100273
+Gradients for cp.resnet.layer1.1.conv2.weight: mean=1.65371602633968e-07, std=0.00040845852345228195
+cp.resnet.layer1.1.bn2.weight - mean: 0.3921835124492645, std: 0.15946228802204132
+Gradients for cp.resnet.layer1.1.bn2.weight: mean=-0.000245173170696944, std=0.0022572858724743128
+cp.resnet.layer1.1.bn2.bias - mean: -0.030282165855169296, std: 0.15447793900966644
+Gradients for cp.resnet.layer1.1.bn2.bias: mean=-3.66060521628242e-05, std=0.0008410410955548286
+cp.resnet.layer2.0.conv1.weight - mean: -0.001381513080559671, std: 0.04177251085639
+Gradients for cp.resnet.layer2.0.conv1.weight: mean=3.6323306176200276e-06, std=0.0003722568217199296
+cp.resnet.layer2.0.bn1.weight - mean: 0.31656602025032043, std: 0.04079871252179146
+Gradients for cp.resnet.layer2.0.bn1.weight: mean=2.7710360882338136e-05, std=0.0020709065720438957
+cp.resnet.layer2.0.bn1.bias - mean: -0.06808594614267349, std: 0.10891782492399216
+Gradients for cp.resnet.layer2.0.bn1.bias: mean=3.502690378809348e-05, std=0.0013906226959079504
+cp.resnet.layer2.0.conv2.weight - mean: -0.0013612709008157253, std: 0.03424326330423355
+Gradients for cp.resnet.layer2.0.conv2.weight: mean=-7.6347296271706e-06, std=0.00025413092225790024
+cp.resnet.layer2.0.bn2.weight - mean: 0.3274763822555542, std: 0.11098159104585648
+Gradients for cp.resnet.layer2.0.bn2.weight: mean=-2.7242178475717083e-05, std=0.0019350674701854587
+cp.resnet.layer2.0.bn2.bias - mean: -0.0032514638733118773, std: 0.09091532975435257
+Gradients for cp.resnet.layer2.0.bn2.bias: mean=-0.00015585869550704956, std=0.0016515494789928198
+cp.resnet.layer2.0.downsample.0.weight - mean: -0.0028297442477196455, std: 0.07073181122541428
+Gradients for cp.resnet.layer2.0.downsample.0.weight: mean=-2.1397258024080656e-05, std=0.0005388469435274601
+cp.resnet.layer2.0.downsample.1.weight - mean: 0.19497111439704895, std: 0.10221076756715775
+Gradients for cp.resnet.layer2.0.downsample.1.weight: mean=-0.00018311587336938828, std=0.001789771718904376
+cp.resnet.layer2.0.downsample.1.bias - mean: -0.0032514638733118773, std: 0.09091532975435257
+Gradients for cp.resnet.layer2.0.downsample.1.bias: mean=-0.00015585869550704956, std=0.0016515494789928198
+cp.resnet.layer2.1.conv1.weight - mean: -0.0014488910092040896, std: 0.034402500838041306
+Gradients for cp.resnet.layer2.1.conv1.weight: mean=2.317726284672972e-06, std=0.00028151855804026127
+cp.resnet.layer2.1.bn1.weight - mean: 0.3210065960884094, std: 0.04779575392603874
+Gradients for cp.resnet.layer2.1.bn1.weight: mean=6.579697219422087e-05, std=0.0021463867742568254
+cp.resnet.layer2.1.bn1.bias - mean: -0.21095609664916992, std: 0.10071650892496109
+Gradients for cp.resnet.layer2.1.bn1.bias: mean=8.046595030464232e-05, std=0.0015660624485462904
+cp.resnet.layer2.1.conv2.weight - mean: -0.0013411840191110969, std: 0.030307099223136902
+Gradients for cp.resnet.layer2.1.conv2.weight: mean=-5.378909008868504e-06, std=0.00021385721629485488
+cp.resnet.layer2.1.bn2.weight - mean: 0.2828703820705414, std: 0.12504608929157257
+Gradients for cp.resnet.layer2.1.bn2.weight: mean=0.0002905488363467157, std=0.0015192339196801186
+cp.resnet.layer2.1.bn2.bias - mean: -0.1510235220193863, std: 0.13803239166736603
+Gradients for cp.resnet.layer2.1.bn2.bias: mean=5.686580152541865e-06, std=0.0011634029215201735
+cp.resnet.layer3.0.conv1.weight - mean: -0.001436651567928493, std: 0.029311172664165497
+Gradients for cp.resnet.layer3.0.conv1.weight: mean=9.78237267190707e-07, std=0.00018377110245637596
+cp.resnet.layer3.0.bn1.weight - mean: 0.3124132752418518, std: 0.04140908643603325
+Gradients for cp.resnet.layer3.0.bn1.weight: mean=-1.2514638001448475e-06, std=0.0016838780138641596
+cp.resnet.layer3.0.bn1.bias - mean: -0.11463779211044312, std: 0.09292768687009811
+Gradients for cp.resnet.layer3.0.bn1.bias: mean=-2.1356452634790912e-05, std=0.0011556993704289198
+cp.resnet.layer3.0.conv2.weight - mean: -0.0008297291351482272, std: 0.025345267727971077
+Gradients for cp.resnet.layer3.0.conv2.weight: mean=1.0117272353227236e-07, std=0.00014800336793996394
+cp.resnet.layer3.0.bn2.weight - mean: 0.3202885091304779, std: 0.0757918581366539
+Gradients for cp.resnet.layer3.0.bn2.weight: mean=-4.1189217881765217e-05, std=0.0016166684217751026
+cp.resnet.layer3.0.bn2.bias - mean: -0.03056708537042141, std: 0.08891861140727997
+Gradients for cp.resnet.layer3.0.bn2.bias: mean=-4.6881930757081136e-05, std=0.001157940598204732
+cp.resnet.layer3.0.downsample.0.weight - mean: -0.0019756776746362448, std: 0.033171847462654114
+Gradients for cp.resnet.layer3.0.downsample.0.weight: mean=1.2281026329219458e-06, std=0.00019135032198391855
+cp.resnet.layer3.0.downsample.1.weight - mean: 0.08218128979206085, std: 0.04014318808913231
+Gradients for cp.resnet.layer3.0.downsample.1.weight: mean=3.694267070386559e-05, std=0.0011927413288503885
+cp.resnet.layer3.0.downsample.1.bias - mean: -0.03056708537042141, std: 0.08891861140727997
+Gradients for cp.resnet.layer3.0.downsample.1.bias: mean=-4.6881930757081136e-05, std=0.001157940598204732
+cp.resnet.layer3.1.conv1.weight - mean: -0.001703272107988596, std: 0.022687509655952454
+Gradients for cp.resnet.layer3.1.conv1.weight: mean=-6.803147698519751e-07, std=0.00014074958744458854
+cp.resnet.layer3.1.bn1.weight - mean: 0.2781483829021454, std: 0.05534057319164276
+Gradients for cp.resnet.layer3.1.bn1.weight: mean=-3.7354657251853496e-05, std=0.002022489905357361
+cp.resnet.layer3.1.bn1.bias - mean: -0.23757807910442352, std: 0.1200573667883873
+Gradients for cp.resnet.layer3.1.bn1.bias: mean=-1.0737378033809364e-05, std=0.0012555662542581558
+cp.resnet.layer3.1.conv2.weight - mean: -0.0015224638627842069, std: 0.021016983315348625
+Gradients for cp.resnet.layer3.1.conv2.weight: mean=9.90243279375136e-07, std=0.00012202107609482482
+cp.resnet.layer3.1.bn2.weight - mean: 0.24557843804359436, std: 0.12056408822536469
+Gradients for cp.resnet.layer3.1.bn2.weight: mean=0.00010205294529441744, std=0.001377986278384924
+cp.resnet.layer3.1.bn2.bias - mean: -0.163640558719635, std: 0.1490791141986847
+Gradients for cp.resnet.layer3.1.bn2.bias: mean=-2.1041763829998672e-05, std=0.00091790989972651
+cp.resnet.layer4.0.conv1.weight - mean: -0.0016051116399466991, std: 0.02022778056561947
+Gradients for cp.resnet.layer4.0.conv1.weight: mean=2.3133517856877006e-07, std=9.898056305246428e-05
+cp.resnet.layer4.0.bn1.weight - mean: 0.2642267942428589, std: 0.03668791055679321
+Gradients for cp.resnet.layer4.0.bn1.weight: mean=-3.4511947887949646e-05, std=0.0016085747629404068
+cp.resnet.layer4.0.bn1.bias - mean: -0.22582480311393738, std: 0.0786203145980835
+Gradients for cp.resnet.layer4.0.bn1.bias: mean=-3.659124195110053e-05, std=0.0009628596599213779
+cp.resnet.layer4.0.conv2.weight - mean: -0.0013735216343775392, std: 0.017720701172947884
+Gradients for cp.resnet.layer4.0.conv2.weight: mean=1.300397457271174e-06, std=9.897669224301353e-05
+cp.resnet.layer4.0.bn2.weight - mean: 0.4244401156902313, std: 0.06839563697576523
+Gradients for cp.resnet.layer4.0.bn2.weight: mean=-3.034929250134155e-06, std=0.0010996363125741482
+cp.resnet.layer4.0.bn2.bias - mean: -0.1976425051689148, std: 0.06530173122882843
+Gradients for cp.resnet.layer4.0.bn2.bias: mean=-3.764455686905421e-05, std=0.0007606465951539576
+cp.resnet.layer4.0.downsample.0.weight - mean: -0.0009166850941255689, std: 0.0330137200653553
+Gradients for cp.resnet.layer4.0.downsample.0.weight: mean=3.5603231935965596e-06, std=0.000214335901546292
+cp.resnet.layer4.0.downsample.1.weight - mean: 0.2502669095993042, std: 0.07653965801000595
+Gradients for cp.resnet.layer4.0.downsample.1.weight: mean=-6.389209011103958e-05, std=0.0009356980444863439
+cp.resnet.layer4.0.downsample.1.bias - mean: -0.1976425051689148, std: 0.06530173122882843
+Gradients for cp.resnet.layer4.0.downsample.1.bias: mean=-3.764455686905421e-05, std=0.0007606465951539576
+cp.resnet.layer4.1.conv1.weight - mean: -0.0023676352575421333, std: 0.018228452652692795
+Gradients for cp.resnet.layer4.1.conv1.weight: mean=-1.4255924725148361e-06, std=0.00012640132626984268
+cp.resnet.layer4.1.bn1.weight - mean: 0.28854674100875854, std: 0.050124641507864
+Gradients for cp.resnet.layer4.1.bn1.weight: mean=-5.0561407988425344e-05, std=0.0033792455215007067
+cp.resnet.layer4.1.bn1.bias - mean: -0.24174106121063232, std: 0.10625605285167694
+Gradients for cp.resnet.layer4.1.bn1.bias: mean=-7.581454701721668e-05, std=0.002175461035221815
+cp.resnet.layer4.1.conv2.weight - mean: -0.00019807081844191998, std: 0.013782170601189137
+Gradients for cp.resnet.layer4.1.conv2.weight: mean=-5.957800794931245e-07, std=0.00019660446560010314
+cp.resnet.layer4.1.bn2.weight - mean: 1.8536443710327148, std: 0.10670938342809677
+Gradients for cp.resnet.layer4.1.bn2.weight: mean=4.685868589149322e-06, std=0.0004366576031316072
+cp.resnet.layer4.1.bn2.bias - mean: 0.2740539610385895, std: 0.08205900341272354
+Gradients for cp.resnet.layer4.1.bn2.bias: mean=-6.049228886695346e-06, std=0.0003061429597437382
+cp.arm16.conv.conv.weight - mean: -5.3660314733861014e-05, std: 0.02128325030207634
+Gradients for cp.arm16.conv.conv.weight: mean=1.145817805081606e-06, std=0.00020978550310246646
+cp.arm16.conv.bn.weight - mean: 1.0028986930847168, std: 0.005019832402467728
+Gradients for cp.arm16.conv.bn.weight: mean=-5.3595154895447195e-05, std=0.0005508585600182414
+cp.arm16.conv.bn.bias - mean: 0.003017665818333626, std: 0.005100916139781475
+Gradients for cp.arm16.conv.bn.bias: mean=-2.112362017214764e-05, std=0.0004237559624016285
+cp.arm16.conv_atten.weight - mean: -0.0007785822381265461, std: 0.08781247586011887
+Gradients for cp.arm16.conv_atten.weight: mean=-6.683241281280061e-06, std=0.00039106231997720897
+cp.arm16.bn_atten.weight - mean: 0.9978394508361816, std: 0.00434716884046793
+Gradients for cp.arm16.bn_atten.weight: mean=-2.6514575438341126e-05, std=0.00018214613373856992
+cp.arm16.bn_atten.bias - mean: 0.009119821712374687, std: 0.0071462057530879974
+Gradients for cp.arm16.bn_atten.bias: mean=-8.7663347585476e-06, std=0.00010209542233496904
+cp.arm32.conv.conv.weight - mean: -0.00038654051604680717, std: 0.015273689292371273
+Gradients for cp.arm32.conv.conv.weight: mean=2.2484089186036726e-06, std=0.00012838514521718025
+cp.arm32.conv.bn.weight - mean: 1.0010467767715454, std: 0.004828776232898235
+Gradients for cp.arm32.conv.bn.weight: mean=2.1833684513694607e-06, std=0.0004235711821820587
+cp.arm32.conv.bn.bias - mean: 0.0017278981395065784, std: 0.005250407382845879
+Gradients for cp.arm32.conv.bn.bias: mean=4.6073113480815664e-05, std=0.00037975155282765627
+cp.arm32.conv_atten.weight - mean: 0.0007400837494060397, std: 0.08784782141447067
+Gradients for cp.arm32.conv_atten.weight: mean=7.233999212985509e-07, std=0.00017347167886327952
+cp.arm32.bn_atten.weight - mean: 0.9985308647155762, std: 0.004356116987764835
+Gradients for cp.arm32.bn_atten.weight: mean=1.3401601790974382e-05, std=0.00018378040113020688
+cp.arm32.bn_atten.bias - mean: 0.0029683292377740145, std: 0.005407453048974276
+Gradients for cp.arm32.bn_atten.bias: mean=-5.112701728648972e-06, std=0.0001229616318596527
+cp.conv_head32.conv.weight - mean: -4.002334026154131e-05, std: 0.029893696308135986
+Gradients for cp.conv_head32.conv.weight: mean=-8.546238859707955e-06, std=0.0006750310421921313
+cp.conv_head32.bn.weight - mean: 0.9965906143188477, std: 0.00400674669072032
+Gradients for cp.conv_head32.bn.weight: mean=5.348264312488027e-05, std=0.0006166600505821407
+cp.conv_head32.bn.bias - mean: -0.002163926139473915, std: 0.003559810109436512
+Gradients for cp.conv_head32.bn.bias: mean=7.109538273653015e-05, std=0.0006174735608510673
+cp.conv_head16.conv.weight - mean: -0.0002184736804338172, std: 0.02969333343207836
+Gradients for cp.conv_head16.conv.weight: mean=-7.761147571727633e-06, std=0.00047957332571968436
+cp.conv_head16.bn.weight - mean: 1.000989556312561, std: 0.004751102067530155
+Gradients for cp.conv_head16.bn.weight: mean=0.0002384025283390656, std=0.0007058156770654023
+cp.conv_head16.bn.bias - mean: 0.002059855032712221, std: 0.004787512123584747
+Gradients for cp.conv_head16.bn.bias: mean=0.0002369439316680655, std=0.0005623229080811143
+cp.conv_avg.conv.weight - mean: -0.00017435209883842617, std: 0.04437769949436188
+Gradients for cp.conv_avg.conv.weight: mean=-1.955295192601625e-05, std=0.001990410266444087
+cp.conv_avg.bn.weight - mean: 0.9990962147712708, std: 0.004013551399111748
+Gradients for cp.conv_avg.bn.weight: mean=-3.7504141801036894e-06, std=0.0008659716695547104
+cp.conv_avg.bn.bias - mean: -0.0008949919138103724, std: 0.004016555845737457
+Gradients for cp.conv_avg.bn.bias: mean=-1.6883022908587009e-06, std=0.000868152012117207
+sp.conv1.conv.weight - mean: -0.0008749201660975814, std: 0.08261677622795105
+Gradients for sp.conv1.conv.weight: mean=-8.231365063693374e-05, std=0.0023903679102659225
+sp.conv1.bn.weight - mean: 0.9994877576828003, std: 0.004759105388075113
+Gradients for sp.conv1.bn.weight: mean=-5.33344064024277e-07, std=0.0011195741826668382
+sp.conv1.bn.bias - mean: 0.00047106214333325624, std: 0.004915108438581228
+Gradients for sp.conv1.bn.bias: mean=4.0027847717283294e-05, std=0.00046634115278720856
+sp.conv2.conv.weight - mean: -0.00043286909931339324, std: 0.041958875954151154
+Gradients for sp.conv2.conv.weight: mean=-2.2211879695532843e-05, std=0.0007561337552033365
+sp.conv2.bn.weight - mean: 1.0000088214874268, std: 0.0044735148549079895
+Gradients for sp.conv2.bn.weight: mean=8.684110071044415e-07, std=0.0007937462069094181
+sp.conv2.bn.bias - mean: 0.0011269939132034779, std: 0.00463421456515789
+Gradients for sp.conv2.bn.bias: mean=6.134599243523553e-05, std=0.0004419925098773092
+sp.conv3.conv.weight - mean: -0.0006763320998288691, std: 0.04215336591005325
+Gradients for sp.conv3.conv.weight: mean=-6.627487891819328e-05, std=0.0005773287266492844
+sp.conv3.bn.weight - mean: 0.9997844099998474, std: 0.0038293846882879734
+Gradients for sp.conv3.bn.weight: mean=1.078587956726551e-07, std=0.0006918588187545538
+sp.conv3.bn.bias - mean: 0.0009159735054709017, std: 0.004344746936112642
+Gradients for sp.conv3.bn.bias: mean=4.1538598452461883e-05, std=0.0005288116517476737
+sp.conv_out.conv.weight - mean: -0.00014918413944542408, std: 0.12659654021263123
+Gradients for sp.conv_out.conv.weight: mean=-2.274714233863051e-06, std=0.0004432608257047832
+sp.conv_out.bn.weight - mean: 0.998357892036438, std: 0.00396852707490325
+Gradients for sp.conv_out.bn.weight: mean=-0.00023916181817185134, std=0.0005761819193139672
+sp.conv_out.bn.bias - mean: -0.000432948290836066, std: 0.004082264844328165
+Gradients for sp.conv_out.bn.bias: mean=-0.00012375462392810732, std=0.0004131927853450179
+ffm.convblk.conv.weight - mean: 5.425518611446023e-05, std: 0.0627295970916748
+Gradients for ffm.convblk.conv.weight: mean=2.038395450654207e-06, std=0.0005309201660566032
+ffm.convblk.bn.weight - mean: 0.9997981786727905, std: 0.004803746473044157
+Gradients for ffm.convblk.bn.weight: mean=-9.016321200761013e-08, std=0.0007002032361924648
+ffm.convblk.bn.bias - mean: 0.001285242149606347, std: 0.004758140537887812
+Gradients for ffm.convblk.bn.bias: mean=1.5440535207744688e-05, std=0.0005709590623155236
+ffm.conv.weight - mean: -0.00018851723871193826, std: 0.06272795051336288
+Gradients for ffm.conv.weight: mean=3.1690929063188378e-06, std=0.000335884396918118
+ffm.bn.weight - mean: 0.9989771246910095, std: 0.004297574516385794
+Gradients for ffm.bn.weight: mean=-2.5687809284136165e-06, std=9.023837628774345e-05
+ffm.bn.bias - mean: -0.0001912767329486087, std: 0.005100307986140251
+Gradients for ffm.bn.bias: mean=4.978543302058824e-07, std=7.302297308342531e-05
+conv_out.conv.conv.weight - mean: -0.000622042512986809, std: 0.021323295310139656
+Gradients for conv_out.conv.conv.weight: mean=7.298069249372929e-06, std=0.0002329504059161991
+conv_out.conv.bn.weight - mean: 1.003009557723999, std: 0.007493296172469854
+Gradients for conv_out.conv.bn.weight: mean=0.00010583466064417735, std=0.0011984605807811022
+conv_out.conv.bn.bias - mean: 0.0033948798663914204, std: 0.007658431772142649
+Gradients for conv_out.conv.bn.bias: mean=0.00020494713680818677, std=0.001038921531289816
+conv_out.conv_out.weight - mean: -0.006699026562273502, std: 0.06347376108169556
+Gradients for conv_out.conv_out.weight: mean=-1.6825651982799172e-11, std=0.004500253591686487
+conv_out.conv_out.bias - mean: -0.005601208657026291, std: 0.009499087929725647
+Gradients for conv_out.conv_out.bias: mean=-9.324867100701795e-09, std=0.0073120626620948315
+conv_out16.conv.conv.weight - mean: 0.00011317405733279884, std: 0.0293818898499012
+No gradients for conv_out16.conv.conv.weight
+conv_out16.conv.bn.weight - mean: 1.0, std: 0.0
+No gradients for conv_out16.conv.bn.weight
+conv_out16.conv.bn.bias - mean: 0.0, std: 0.0
+No gradients for conv_out16.conv.bn.bias
+conv_out16.conv_out.weight - mean: 0.001505744643509388, std: 0.12378369271755219
+No gradients for conv_out16.conv_out.weight
+conv_out16.conv_out.bias - mean: 0.0, std: 0.0
+No gradients for conv_out16.conv_out.bias
+conv_out32.conv.conv.weight - mean: -0.00011205331975361332, std: 0.029503993690013885
+No gradients for conv_out32.conv.conv.weight
+conv_out32.conv.bn.weight - mean: 1.0, std: 0.0
+No gradients for conv_out32.conv.bn.weight
+conv_out32.conv.bn.bias - mean: 0.0, std: 0.0
+No gradients for conv_out32.conv.bn.bias
+conv_out32.conv_out.weight - mean: -0.002906208857893944, std: 0.12102439999580383
+No gradients for conv_out32.conv_out.weight
+conv_out32.conv_out.bias - mean: 0.0, std: 0.0
+No gradients for conv_out32.conv_out.bias
