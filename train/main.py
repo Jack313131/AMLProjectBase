@@ -13,7 +13,7 @@ import math
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
 
-from torch.optim import SGD, Adam, lr_scheduler
+from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
@@ -105,7 +105,7 @@ class CrossEntropyLoss2d(torch.nn.Module):
     # In questo modo, il modello può prevedere la classe di ciascun pixel per ogni immagine nel batch.
     # CrossEntropyLoss2d è ideale per questo scopo perché calcola una perdita per ogni pixel dell'immagine, basandosi su quanto bene il modello predice la classe di quel pixel rispetto alla classe effettiva.
 
-    def __init__(self, weight=None,ignores_index=None):
+    def __init__(self, weight=None, ignores_index=None):
         super().__init__()
 
         # Questo inizializza la Negative Log Likelihood Loss in 2D (NLLLoss2d), questa è una funzione di perdita utilizzata in problemi di classificazione e segmentazione delle immagini, dove l'obiettivo è classificare ciascun pixel dell'immagine
@@ -118,10 +118,20 @@ class CrossEntropyLoss2d(torch.nn.Module):
             self.loss = torch.nn.NLLLoss(weight)
 
     def forward(self, outputs, targets):
+
+        # if targets.dtype != torch.long:
+        # targets = targets.long()
+
+        # outputs = torch.clamp(outputs, min=-3, max=3)
+        # reg_term = 0.1 * torch.norm(outputs, p=2, dim=1).mean()
+
+        # outputs = torch.clamp(outputs, min=-5, max=5)
+        # outputs = outputs.to(torch.float64)
+        # targets = targets.double()
         # outputs sono le previsioni date dal modello (output sono in forma di logits, ossia valori grezzi non normalizzati, per ciascuna classe e per ogni pixel.), mentre target il ground truth (Queste sono le etichette vere che si desidera che il modello impari a predire.)
         # prima di passare al confronto tra previsioni del modello e ground truth, la predizione del modello viene passata ad una softmax per ottenere un vettore di probabilità, dove ogni valore rappresenta la probabilità che un dato pixel appartenga a una particolare classe.
         # Poi, self.loss, che è la funzione NLLLoss2d, viene applicata per calcolare la perdita effettiva. Questa funzione calcola la log likelihood negativa tra le previsioni (dopo aver applicato log_softmax) e le etichette vere.
-        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
+        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)  # + reg_term
 
 
 def train(args, model, enc=False):
@@ -200,7 +210,7 @@ def train(args, model, enc=False):
 
     if args.cuda:
         weight = weight.cuda()
-    criterion = CrossEntropyLoss2d(weight,ignores_index=255)
+    criterion = CrossEntropyLoss2d(weight)
     # print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
@@ -230,8 +240,9 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    # optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=1e-4)  ## scheduler 2
+    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
+    # optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
+    # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
     if args.resume:
@@ -294,6 +305,11 @@ def train(args, model, enc=False):
         # 1. Dropout: Durante l'addestramento, il dropout "disattiva" casualmente alcuni neuroni (o connessioni tra neuroni) per prevenire l'overfitting e promuovere un apprendimento più robusto. In fase di valutazione, il dropout viene disabilitato per utilizzare l'intera rete per le previsioni.
         # 2. Batch Normalization: Durante l'addestramento, la batch normalization normalizza l'output di un layer utilizzando la media e la varianza del batch corrente. Durante la valutazione, invece, utilizza la media e la varianza calcolate dall'intero set di addestramento.
         model.train()
+        # model.to(torch.float64)
+
+        # for name, param in model.named_parameters():
+        # if param.requires_grad:
+        # print(f'Weight stats before optimization - {name}: mean={param.data.mean()}, std={param.data.std()}')
 
         # La funzione enumerate in Python è un modo conveniente per ottenere sia l'indice sia i valori da un iteratore.
         # In questo caso, enumerate(loader) restituisce due valori ad ogni iterazione: un indice (che viene assegnato a step) e i valori (in questo caso, tuple (images, labels)). Dove :
@@ -316,12 +332,16 @@ def train(args, model, enc=False):
             images.requires_grad_(True)
             inputs = images
 
-            #labels.requires_grad_(True)
+            # inputs = inputs.to(torch.float64)
+            # target_tensor = target_tensor.to(torch.float64)
+
+            # labels.requires_grad_(True)
             targets = labels
 
             if "BiSeNet" in args.model:
                 outputs = model(inputs)
                 outputs = outputs[0]
+                outputs = outputs.float()
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
 
@@ -330,6 +350,9 @@ def train(args, model, enc=False):
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
             optimizer.zero_grad()
 
+            # print(outputs.size())
+            # print(targets.size())
+            # targets = targets.float()
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
@@ -337,8 +360,53 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            #Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
+            torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
+                        print(f"NaN or Inf found in gradients of {name}")
+
+            for name, param in model.named_parameters():
+                if torch.isnan(param.data).any():
+                    print(f"NaN found in weights of {name}")
+                if torch.isinf(param.data).any():
+                    print(f"Inf found in weights of {name}")
+
+            # for name, param in model.named_parameters():
+            # if param.requires_grad:
+            # print(f"{name} - mean: {param.data.mean()}, std: {param.data.std()}")
+
+            # for name, param in model.named_parameters():
+            # if param.requires_grad:
+            # if param.grad is not None:
+            # print(f'Gradient stats - {name}: mean={param.grad.data.mean()}, std={param.grad.data.std()}')
+
+            # if epoch == 1 and step == 152:  # Assicurati che sia l'epoca 1 e lo step 151
+            # for name, param in model.named_parameters():
+            # if param.grad is not None:
+            # print(f"Gradients for {name}: mean={param.grad.mean()}, std={param.grad.std()}")
+            # else:
+            # print(f"No gradients for {name}")
+
+            # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
+
+            # if step == 151:  # Verifica che sia lo step 152 della prima epoca
+            # print(f"Analisi Ottimizzatore allo Step 152")
+            # for group in optimizer.param_groups:
+            # for p in group['params']:
+            # if p.grad is not None:
+            # state = optimizer.state[p]
+            # if state:  # Controlla se lo stato è popolato
+            # print(f"exp_avg: {state['exp_avg'].mean()}, exp_avg_sq: {state['exp_avg_sq'].mean()}")
+
+            # print(step)
+            # if step == 151:
+            # for name, param in model.named_parameters():
+            # if param.requires_grad:
+            # print(f'Weight stats after optimization - {name}: mean={param.data.mean()}, std={param.data.std()}')
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
@@ -517,7 +585,7 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     if "BiSeNet" in args.model:
-        model = model_file.BiSeNet(NUM_CLASSES,'resnet18')
+        model = model_file.BiSeNet(NUM_CLASSES, 'resnet18')
     if "erfnet" in args.model:
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
@@ -565,7 +633,7 @@ def main(args):
     #TO ACCESS MODEL IN DataParallel: next(model.children())
     #next(model.children()).decoder.apply(weights_init)
     #Reinitialize weights for decoder
-    
+
     next(model.children()).decoder.layers.apply(weights_init)
     next(model.children()).decoder.output_conv.apply(weights_init)
 
@@ -616,18 +684,21 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
-    parser.add_argument('--batch-size', type=int, default=3)
+    parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--steps-loss', type=int, default=50)
-    parser.add_argument('--steps-plot', type=int, default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
+    parser.add_argument('--steps-plot', type=int,
+                        default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
-    parser.add_argument('--visualize', action='store_true') # variabile per determinare se la visualizzazione è attivata o meno.
+    parser.add_argument('--visualize',
+                        action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
 
-    parser.add_argument('--iouTrain', action='store_true', #boolean to compute IoU evaluation  in the training phase
+    parser.add_argument('--iouTrain', action='store_true',  # boolean to compute IoU evaluation  in the training phase
                         default=False)  # recommended: False (takes more time to train otherwise)
-    parser.add_argument('--iouVal', action='store_true', default=True)  #boolean to compute IoU evaluation also in the validation phase
+    parser.add_argument('--iouVal', action='store_true',
+                        default=True)  # boolean to compute IoU evaluation also in the validation phase
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
 
     if os.path.basename(os.getcwd()) != "train":
