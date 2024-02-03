@@ -484,7 +484,10 @@ def train(args, model, enc=False):
                 if "erfnet" in args.model:
                     outputs = model(inputs, only_encode=enc)
                 if "ENet" in args.model:
-                  outputs = model(inputs)
+                    outputs = model(inputs)
+                
+                if "SimSiam" in args.model:
+                    outputs = model(inputs)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
