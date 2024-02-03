@@ -344,7 +344,8 @@ def train(args, model, enc=False):
                 outputs = outputs.float()
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
-
+            if "ENet" in args.model:
+              outputs = model(inputs)
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
@@ -482,6 +483,8 @@ def train(args, model, enc=False):
                     outputs = outputs.float()
                 if "erfnet" in args.model:
                     outputs = model(inputs, only_encode=enc)
+                if "ENet" in args.model:
+                  outputs = model(inputs)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
@@ -595,6 +598,8 @@ def main(args):
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model:
         model = model_file.Net(NUM_CLASSES)
+    if "ENet" in args.model:
+        model = model_file.ENet(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:
@@ -672,6 +677,8 @@ def main(args):
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if "erfnet" in args.model:
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
+        if "ENet" in args.model:
+          model = model_file.ENet(NUM_CLASSES)
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
