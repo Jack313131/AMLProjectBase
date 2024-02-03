@@ -37,10 +37,11 @@ image_transform = ToPILImage()
 
 # Augmentations - different function implemented to perform random augments on both image and target
 class MyCoTransform(object):
-    def __init__(self, enc, augment=True, height=512):
+    def __init__(self, enc, augment=True, height=512, backbone=None):
         self.enc = enc  # A flag (True/False) to enable additional processing on the target image.
         self.augment = augment  # A flag to enable or disable augmentation.
         self.height = height  # The desired height to resize images.
+        self.backbone = backbone
         pass
 
     def __call__(self, input, target):  # method is executed when an instance of the class MyCoTransform is invoked
@@ -51,16 +52,19 @@ class MyCoTransform(object):
         # Resize strict the images to the target dimension self.height (define as parameter) and applies a transformation called (interpolazione)
         # L'interpolazione è una tecnica utilizzata per il ridimensionamento delle immagini e per altre trasformazioni geometriche
         # per calcolare i valori dei nuovi pixel basandosi sui pixel di partenza
+        # if self.backbone.casefold().replace(" ", "") == "barlowtwins":
+        # input = Resize((224, 224))(input)
+        # else:
         input = Resize(self.height, Image.BILINEAR)(
             input)  # L'interpolazione bilineare (BILINEAR) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione bilineare considera i 4 pixel più vicini nella posizione corrispondente dell'immagine originale. Il valore del nuovo pixel è calcolato come una media ponderata dei valori di questi quattro pixel. Le ponderazioni sono basate sulla distanza relativa del punto calcolato rispetto a ciascuno di questi quattro pixel. In termini semplici, più un pixel è vicino al punto calcolato, maggiore sarà il suo contributo al valore finale.
+
         target = Resize(self.height, Image.NEAREST)(
             target)  # L'interpolazione nearest neighbor (Nearest) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione nearest neighbor semplicemente seleziona il valore del pixel più vicino nell'immagine originale, senza considerare altri pixel vicini. In altre parole, il valore del nuovo pixel è uguale a quello del pixel più vicino nella posizione corrispondente dell'immagine originale.
 
         if (self.augment):
             # Random hflip
             hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-            if (
-                    hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+            if (hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
                 input = input.transpose(Image.FLIP_LEFT_RIGHT)
                 target = target.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -87,6 +91,7 @@ class MyCoTransform(object):
         input = ToTensor()(input)
         normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         input = normalize(input)
+
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(
                 target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
@@ -136,6 +141,10 @@ class CrossEntropyLoss2d(torch.nn.Module):
 
 def train(args, model, enc=False):
     best_acc = 0
+
+    #torch.distributed.init_process_group(
+    #    backend='nccl', init_method='tcp://localhost:58472',
+    #    world_size=torch.cuda.device_count(), rank=0)
 
     # TODO: calculate weights by processing dataset histogram (now its being set by hand from the torch values)
     # create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
@@ -200,8 +209,8 @@ def train(args, model, enc=False):
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
     # classi per gestire augmentation per il dataset di training e quello di validation
-    co_transform = MyCoTransform(enc, augment=True, height=args.height)  # 1024)
-    co_transform_val = MyCoTransform(enc, augment=False, height=args.height)  # 1024)
+    co_transform = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
+    co_transform_val = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
 
@@ -274,9 +283,10 @@ def train(args, model, enc=False):
     # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
     # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
 
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -360,7 +370,6 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            #torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
             #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             # for name, param in model.named_parameters():
@@ -594,7 +603,7 @@ def main(args):
     if "BiSeNet" in args.model:
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model:
-        model = model_file.Net(NUM_CLASSES)
+        model = model_file.Net(NUM_CLASSES,encoder=None, batch_size = args.batch_size,backbone = args.backbone)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:
@@ -666,12 +675,10 @@ def main(args):
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        elif "erfnet" in args.model:
-            pretrainedEnc = next(model.children()).encoder
         if "BiSeNet" in args.model:
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if "erfnet" in args.model:
-            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
+            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size = args.batch_size,backbone = args.backbone)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -682,7 +689,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true',
-                        default=True)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
+                        default=False)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
 
@@ -707,6 +714,7 @@ if __name__ == '__main__':
     parser.add_argument('--iouVal', action='store_true',
                         default=True)  # boolean to compute IoU evaluation also in the validation phase
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
+    parser.add_argument('--backbone', type=str, default=None)
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")

@@ -221,7 +221,7 @@ def main():
             ood_gts = np.where((ood_gts == 255), 1, ood_gts)
 
         if (args.backgroundAnomaly):
-            ood_gts = np.where((ood_gts == 1), 0, ood_gts)
+            #ood_gts = np.where((ood_gts == 1), 0, ood_gts)
             ood_gts = np.where((ood_gts == 255), 1, ood_gts)
 
         # Questa istruzione controlla se il valore 1 è presente nell'array delle etichette di ground truth. Il valore 1 una classe specifica (side walk ?), probabilmente associata a una certa tipologia di anomalia.
