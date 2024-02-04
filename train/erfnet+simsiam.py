@@ -7,7 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
-import SimSiam
+import torchvision.models as models
+
+from simsiam.builder import SimSiam
 
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
@@ -137,16 +139,19 @@ class Decoder (nn.Module):
 class Net(nn.Module):
     def __init__(self, num_classes, encoder=None):  #use encoder to pass pretrained encoder
         super().__init__()
-
+        base_encoder = models.__dict__['resnet50']
         if (encoder == None):
-            self.encoder = SimSiam(num_classes)
+            self.encoder = SimSiam(base_encoder, num_classes)
         else:
             self.encoder = encoder
         self.decoder = Decoder(num_classes)
 
-    def forward(self, input, only_encode=False):
+    def forward(self, input, labels, only_encode=False):
+        input1 = input #add some trasformations
+        input2 = labels #add some trasformations
         if only_encode:
-            return self.encoder.forward(input, predict=True)
+            return self.encoder.forward(input1, input2)
         else:
-            output = self.encoder(input)    #predict=False by default
+            _, _, z1, z2 = self.encoder(input)    #predict=False by default
+            output = 0.5 * (z1 + z2)
             return self.decoder.forward(output)
