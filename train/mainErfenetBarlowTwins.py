@@ -255,6 +255,24 @@ def train(args, model, enc=False):
     #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
+    # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
+    # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
+    # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
+
+    # lambda1 --> Questa è una funzione lambda in Python che prende come input l'epoca corrente (epoch) e calcola un fattore di scala per il learning rate
+    # La formula pow(...) riduce gradualmente il learning rate durante il processo di addestramento. All'inizio dell'addestramento (epoch vicino a 0), questo valore è vicino a 1, quindi il learning rate rimane quasi invariato.
+    # Man mano che l'addestramento procede e epoch aumenta, il valore ritorna da questa funzione diminuisce, riducendo così il learning rate.
+
+    # scheduler --> Questa istruzione crea un oggetto scheduler di tipo LambdaLR (un tipo di scheduler del learning rate che permette di regolare il learning rate in base a una funzione definita dall'utente)
+    # riceve come parametri :
+    # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
+    # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
+
+    # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
+    # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular', cycle_momentum=False)  # scheduler 3
+
     start_epoch = 1
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
@@ -270,31 +288,14 @@ def train(args, model, enc=False):
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
         del checkpoint
         gc.collect()
 
     if not args.resume and args.model.casefold().replace(" ", ""):
         model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
-
-    # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
-    # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
-    # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
-
-    # lambda1 --> Questa è una funzione lambda in Python che prende come input l'epoca corrente (epoch) e calcola un fattore di scala per il learning rate
-    # La formula pow(...) riduce gradualmente il learning rate durante il processo di addestramento. All'inizio dell'addestramento (epoch vicino a 0), questo valore è vicino a 1, quindi il learning rate rimane quasi invariato.
-    # Man mano che l'addestramento procede e epoch aumenta, il valore ritorna da questa funzione diminuisce, riducendo così il learning rate.
-
-    # scheduler --> Questa istruzione crea un oggetto scheduler di tipo LambdaLR (un tipo di scheduler del learning rate che permette di regolare il learning rate in base a una funzione definita dall'utente)
-    # riceve come parametri :
-    # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
-    # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
-
-    #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
-    lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
-    #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular',cycle_momentum=False) # scheduler 3
-
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -522,6 +523,7 @@ def train(args, model, enc=False):
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict()
         }, is_best, filenameCheckpoint, filenameBest)
 
         # SAVE MODEL AFTER EPOCH
@@ -690,11 +692,11 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
-    parser.add_argument('--batch-size', type=int, default=4)
+    parser.add_argument('--batch-size', type=int, default=6)
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
-    parser.add_argument('--epochs-save', type=int, default=1)  # You can use this value to save model every X epochs
+    parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
