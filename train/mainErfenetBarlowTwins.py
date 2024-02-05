@@ -547,7 +547,7 @@ def train(args, model, enc=False):
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
             modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
-            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/{savedir}/")
+            #saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/{savedir}/")
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
