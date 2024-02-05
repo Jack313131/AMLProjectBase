@@ -262,7 +262,7 @@ def train(args, model, enc=False):
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
     if not args.resume and args.model.casefold().replace(" ", "") == "simsiam" :
-        model.module.loadInitialWeigth("/content/drive/MyDrive/AML/checkpoint_simsiam.pth")
+        model.module.loadInitialWeigth("/content/drive/MyDrive/[SimSiam]/checkpoint_simsiam.pth.tar")
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
     # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
     # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
