@@ -7,6 +7,7 @@ import random
 import torchvision
 from PIL import Image, ImageOps
 from torchvision.transforms import ToTensor
+import os
 
 
 class MyCoTransform(object):
@@ -82,22 +83,32 @@ def off_diagonal(x):
 
 class BarlowTwins(nn.Module):
 
-    def __init__(self, batch_size, finalSize=128, lambd=0.0051):
+    def __init__(self, batch_size, finalSize="8192-8192-8192", lambd=0.0051):
         super().__init__()
         self.finalSize = finalSize
         self.batch_size = batch_size
         self.lambd = lambd
         self.backbone = torchvision.models.resnet50(zero_init_residual=True)
         self.backbone.fc = nn.Identity()
-        sizes = [2048, self.finalSize * 64 * 128]  # Calcola la dimensione necessaria
-        self.projector = nn.Linear(sizes[0], sizes[1], bias=False)
+        sizes = [2048] + list(map(int, finalSize.split('-')))
+        layers = []
+        for i in range(len(sizes) - 2):
+            layers.append(nn.Linear(sizes[i], sizes[i + 1], bias=False))
+            layers.append(nn.BatchNorm1d(sizes[i + 1]))
+            layers.append(nn.ReLU(inplace=True))
+        layers.append(nn.Linear(sizes[-2], sizes[-1], bias=False))
+        self.projector = nn.Sequential(*layers)
 
-    #self.projector = nn.Sequential(*layers)
+        # normalization layer for the representations z1 and z2
+        self.bn = nn.BatchNorm1d(sizes[-1], affine=False)
+
+    # self.projector = nn.Sequential(*layers)
 
     def forward(self, x):
         x = self.backbone(x)
+        # print(x.size())
         x = self.projector(x)
 
-        x = x.view(self.batch_size, self.finalSize, 64, 128)
+        # x = x.view(self.batch_size, self.finalSize, 64, 128)
 
         return x

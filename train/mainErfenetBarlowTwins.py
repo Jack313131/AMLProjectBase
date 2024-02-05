@@ -249,8 +249,8 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
-    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=0)  ## scheduler 2
+    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=1e-4)  ## scheduler 1
+    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
@@ -285,13 +285,25 @@ def train(args, model, enc=False):
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
-    #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)
+    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
+
+    if args.freezingBackbone:
+      print("Freezing the backbone ... ")
+      # Congela i pesi dell'encoder
+      if isinstance(model, torch.nn.DataParallel):
+        for param in model.module.encoder.parameters():
+          param.requires_grad = False
+      else:
+        for param in model.encoder.parameters():
+          param.requires_grad = False
+    else:
+      print("Not freezing the backbone ... ")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -698,7 +710,7 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
-    parser.add_argument('--batch-size', type=int, default=6)
+    parser.add_argument('--batch-size', type=int, default=4)
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
@@ -715,6 +727,7 @@ if __name__ == '__main__':
                         default=True)  # boolean to compute IoU evaluation also in the validation phase
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
     parser.add_argument('--backbone', type=str, default=None)
+    parser.add_argument("--freezingBackbone",action='store_true')
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")

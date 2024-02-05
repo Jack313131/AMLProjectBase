@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 from BarlowTwins import BarlowTwins
+import os
 
 
 class DownsamplerBlock(nn.Module):
@@ -116,6 +117,14 @@ class Decoder(nn.Module):
 
         self.layers = nn.ModuleList()
 
+        # Layer per ridimensionare e adattare i canali
+        self.adapt_layer = nn.Sequential(
+            # Layer per trasformare [6, 8192] in [6, 128, 8, 8]
+            nn.Unflatten(1, (128, 8, 8)),
+            # Layer di convoluzione per adattare le dimensioni spaziali
+            nn.ConvTranspose2d(128, 128, kernel_size=(8,16), stride=(8,16)),
+        )
+
         self.layers.append(UpsamplerBlock(128, 64))
         self.layers.append(non_bottleneck_1d(64, 0, 1))
         self.layers.append(non_bottleneck_1d(64, 0, 1))
@@ -128,6 +137,8 @@ class Decoder(nn.Module):
 
     def forward(self, input):
         output = input
+
+        output = self.adapt_layer(output)
 
         for layer in self.layers:
             output = layer(output)
@@ -145,6 +156,13 @@ class Net(nn.Module):
         if (encoder == None):
             if backbone.casefold().replace(" ", "") == "barlowtwins":
                 self.encoder = BarlowTwins(batch_size=batch_size)
+                if os.path.isfile("../save/checkpoint_barlowTwins.pth"):
+                    print("Loading weigths barlowTwins ... ")
+                    ckpt = torch.load("../save/checkpoint_barlowTwins.pth",map_location="cuda" if torch.cuda.is_available() else "cpu")
+                    ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['model'].items()}
+                    self.encoder.load_state_dict(ckpt_backbone)
+                else:
+                    print("NOT Loaded weigths barlowTwins ... ")
             else:
                 self.encoder = Encoder(num_classes)
         else:
@@ -157,5 +175,5 @@ class Net(nn.Module):
             return self.encoder.forward(input, predict=True)
         else:
             output = self.encoder(input)  # predict=False by default
-
+            #print(output.size())
             return self.decoder.forward(output)

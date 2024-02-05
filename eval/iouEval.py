@@ -30,7 +30,7 @@ class iouEval:
 
     # Il metodo addBatch è un componente critico per calcolare le metriche di Intersection over Union (IoU) in compiti di segmentazione semantica.
     # Parametri di Input :
-    # x: Predizioni del modello per un batch di immagini. Ha dimensioni [batch_size, nClasses, H, W], dove nClasses è il numero di classi di segmentazione, H e W sono rispettivamente altezza e larghezza dell'immagine.
+    # x: Predizioni del modello per un batch di immagini. Ha dimensioni [batch_size, 1, H, W], dove nClasses è il numero di classi di segmentazione, H e W sono rispettivamente altezza e larghezza dell'immagine.
     # y: Etichette di ground truth corrispondenti a x. Ha le stesse dimensioni di x.
     def addBatch(self, x, y):   #x=preds, y=targets
         #sizes should be "batch_size x nClasses x H x W"
