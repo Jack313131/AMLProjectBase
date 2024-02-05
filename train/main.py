@@ -245,6 +245,8 @@ def train(args, model, enc=False):
     #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
+    drivedir = '/content/drive/MyDrive/[SimSiam]'
+
     start_epoch = 1
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
@@ -303,6 +305,7 @@ def train(args, model, enc=False):
 
         epoch_loss = []
         time_train = []
+        
 
         doIouTrain = args.iouTrain
         doIouVal = args.iouVal
@@ -552,9 +555,13 @@ def train(args, model, enc=False):
         if enc:
             filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
             filenameBest = savedir + '/model_best_enc.pth.tar'
+            filenameCheckpointdir = drivedir + '/checkpoint_enc.pth.tar'
+            filenameBestdir = drivedir + '/model_best_enc.pth.tar'
         else:
             filenameCheckpoint = savedir + '/checkpoint.pth.tar'
             filenameBest = savedir + '/model_best.pth.tar'
+            filenameCheckpointdir = drivedir + '/checkpoint.pth.tar'
+            filenameBestdir = drivedir + '/model_best.pth.tar'
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
@@ -562,25 +569,42 @@ def train(args, model, enc=False):
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
         }, is_best, filenameCheckpoint, filenameBest)
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'arch': str(model),
+            'state_dict': model.state_dict(),
+            'best_acc': best_acc,
+            'optimizer': optimizer.state_dict(),
+        }, is_best, filenameCheckpointdir, filenameBestdir)
 
         # SAVE MODEL AFTER EPOCH
         if (enc):
             filename = f'{savedir}/model_encoder-{epoch:03}.pth'
             filenamebest = f'{savedir}/model_encoder_best.pth'
+            filenamedir = f'{drivedir}/model_encoder-{epoch:03}.pth'
+            filenamebestdir = f'{drivedir}/model_encoder_best.pth'
         else:
             filename = f'{savedir}/model-{epoch:03}.pth'
             filenamebest = f'{savedir}/model_best.pth'
+            filenamedir = f'{drivedir}/model-{epoch:03}.pth'
+            filenamebestdir = f'{drivedir}/model_best.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
             torch.save(model.state_dict(), filename)
+            torch.save(model.state_dict(), filenamedir)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
             torch.save(model.state_dict(), filenamebest)
+            torch.save(model.state_dict(), filenamebestdir)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                with open(drivedir + "/best.txt", "w") as myfile:
+                    myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
             else:
                 with open(savedir + "/best_encoder.txt", "w") as myfile:
+                    myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                with open(drivedir + "/best_encoder.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
@@ -589,7 +613,7 @@ def train(args, model, enc=False):
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
         if epoch%5 == 0:
-            with open('/content/drive/MyColabFiles/myfile.txt', 'w') as f:
+            with open(drivedir+'/automated_log.txt', 'w') as f:
                 f.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
 
