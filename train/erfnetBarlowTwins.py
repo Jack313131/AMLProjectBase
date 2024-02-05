@@ -9,7 +9,7 @@ import torch.nn.init as init
 import torch.nn.functional as F
 from BarlowTwins import BarlowTwins
 import os
-
+import gc
 
 class DownsamplerBlock(nn.Module):
     def __init__(self, ninput, noutput):
@@ -156,13 +156,6 @@ class Net(nn.Module):
         if (encoder == None):
             if backbone.casefold().replace(" ", "") == "barlowtwins":
                 self.encoder = BarlowTwins(batch_size=batch_size)
-                if os.path.isfile("../save/checkpoint_barlowTwins.pth"):
-                    print("Loading weigths barlowTwins ... ")
-                    ckpt = torch.load("../save/checkpoint_barlowTwins.pth",map_location="cuda" if torch.cuda.is_available() else "cpu")
-                    ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['model'].items()}
-                    self.encoder.load_state_dict(ckpt_backbone)
-                else:
-                    print("NOT Loaded weigths barlowTwins ... ")
             else:
                 self.encoder = Encoder(num_classes)
         else:
@@ -170,7 +163,20 @@ class Net(nn.Module):
 
         self.decoder = Decoder(num_classes)
 
-    def forward(self, input,only_encode=False,):
+    def loadInitialWeigth(self,path):
+        assert os.path.isfile(path) ,f"loadInitialWeigth path is wrong : {path}"
+        if os.path.isfile(path):
+            print("Loading weigths barlowTwins ... ")
+            ckpt = torch.load(path,map_location="cuda" if torch.cuda.is_available() else "cpu")
+            ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['model'].items()}
+            self.encoder.load_state_dict(ckpt_backbone)
+            print("Weigths loaded barlowTwins ... ")
+            del ckpt, ckpt_backbone
+            gc.collect()
+        else:
+            print("NOT Loaded weigths barlowTwins ... ")
+
+    def forward(self, input,only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:

@@ -5,10 +5,12 @@
 
 import os
 import random
+import shutil
 import time
 import numpy as np
 import torch
 import math
+import gc
 
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
@@ -249,8 +251,8 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=1e-4)  ## scheduler 1
-    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
+    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=1e-4)  ## scheduler 1
+    #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
@@ -269,6 +271,11 @@ def train(args, model, enc=False):
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
+        del checkpoint
+        gc.collect()
+
+    if not args.resume and args.model.casefold().replace(" ", ""):
+        model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
 
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
     # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
@@ -285,8 +292,9 @@ def train(args, model, enc=False):
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)
+    #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular') # scheduler 3
+
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -354,9 +362,6 @@ def train(args, model, enc=False):
             images.requires_grad_(True)
             inputs = images
 
-            # inputs = inputs.to(torch.float64)
-            # target_tensor = target_tensor.to(torch.float64)
-
             # labels.requires_grad_(True)
             targets = labels
 
@@ -372,9 +377,6 @@ def train(args, model, enc=False):
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
             optimizer.zero_grad()
 
-            # print(outputs.size())
-            # print(targets.size())
-            # targets = targets.float()
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
@@ -384,50 +386,8 @@ def train(args, model, enc=False):
 
             #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
-            #             print(f"NaN or Inf found in gradients of {name}")
-            #
-            # for name, param in model.named_parameters():
-            #     if torch.isnan(param.data).any():
-            #         print(f"NaN found in weights of {name}")
-            #     if torch.isinf(param.data).any():
-            #         print(f"Inf found in weights of {name}")
-
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # print(f"{name} - mean: {param.data.mean()}, std: {param.data.std()}")
-
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # if param.grad is not None:
-            # print(f'Gradient stats - {name}: mean={param.grad.data.mean()}, std={param.grad.data.std()}')
-
-            # if epoch == 1 and step == 152:  # Assicurati che sia l'epoca 1 e lo step 151
-            # for name, param in model.named_parameters():
-            # if param.grad is not None:
-            # print(f"Gradients for {name}: mean={param.grad.mean()}, std={param.grad.std()}")
-            # else:
-            # print(f"No gradients for {name}")
-
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
-
-            # if step == 151:  # Verifica che sia lo step 152 della prima epoca
-            # print(f"Analisi Ottimizzatore allo Step 152")
-            # for group in optimizer.param_groups:
-            # for p in group['params']:
-            # if p.grad is not None:
-            # state = optimizer.state[p]
-            # if state:  # Controlla se lo stato è popolato
-            # print(f"exp_avg: {state['exp_avg'].mean()}, exp_avg_sq: {state['exp_avg_sq'].mean()}")
-
-            # print(step)
-            # if step == 151:
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # print(f'Weight stats after optimization - {name}: mean={param.data.mean()}, std={param.data.std()}')
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
@@ -585,10 +545,15 @@ def train(args, model, enc=False):
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
+        if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
+            modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
+            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/{savedir}/")
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+
+
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -599,6 +564,17 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
         print("Saving model as best")
         torch.save(state, filenameBest)
 
+def saveOnDrive(epoch , model , pathOriginal):
+    if not os.path.isdir(pathOriginal):
+        print(f"Path Original is wrong : {pathOriginal}")
+    drive = "/content/myDrive/"
+    if os.path.isdir(drive):
+        if not os.path.isdir(drive+f"AML/{model}/"):
+            os.mkdir(drive+f"AML/{model}/")
+        shutil.copytree(pathOriginal, drive+f"AML/{model}/")
+        print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
+    else:
+        print("Drive is not linked ...")
 
 def main(args):
     savedir = f'../save/{args.savedir}'
@@ -679,7 +655,7 @@ def main(args):
     # We must reinit decoder weights or reload network passing only encoder in order to train decoder
     print("========== DECODER TRAINING ===========")
     if (not args.state):
-        if args.pretrainedEncoder:
+        if args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
             print("Loading encoder pretrained in imagenet")
             from erfnet_imagenet import ERFNet as ERFNet_imagenet
             pretrainedEnc = torch.nn.DataParallel(ERFNet_imagenet(1000))
@@ -687,10 +663,14 @@ def main(args):
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        if "BiSeNet" in args.model:
+        if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
+            pretrainedEnc = next(model.children()).encoder
+        if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
+            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size,backbone=args.backbone)
+        if args.model.casefold().replace(" ", "") == "BiSeNet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-        if "erfnet" in args.model:
-            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size = args.batch_size,backbone = args.backbone)  # Add decoder to encoder
+        if args.model.casefold().replace(" ", "") == "erfnet" :
+            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, batch_size = args.batch_size,backbone = args.backbone)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -728,6 +708,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
     parser.add_argument('--backbone', type=str, default=None)
     parser.add_argument("--freezingBackbone",action='store_true')
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=10)
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
