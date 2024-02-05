@@ -333,7 +333,7 @@ def train(args, model, enc=False):
         for step, (images, labels) in enumerate(loader):
 
             start_time = time.time()
-            print (images.size())
+            # print (images.size())
             # print (np.unique(labels.numpy()))
             # print("labels: ", np.unique(labels[0].numpy()))
             # labels = torch.ones(4, 1, 512, 1024).long()
@@ -497,16 +497,13 @@ def train(args, model, enc=False):
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                        outputs = model(inputs, only_encode=enc)
+                    outputs = model(inputs, only_encode=enc)
                 if "ENet" in args.model:
                     outputs = model(inputs)
                 if "simsiam" in args.model:
                     outputs = model(inputs)
 
-                if "simsiam" in args.model:
-                    loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
-                else:
-                    loss = criterion(outputs, targets[:, 0])
+                loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
