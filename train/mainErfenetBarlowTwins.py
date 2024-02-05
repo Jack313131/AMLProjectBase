@@ -251,7 +251,7 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=1e-4)  ## scheduler 1
+    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
     #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
@@ -293,7 +293,7 @@ def train(args, model, enc=False):
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular') # scheduler 3
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular',cycle_momentum=False) # scheduler 3
 
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
