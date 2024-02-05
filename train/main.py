@@ -588,6 +588,10 @@ def train(args, model, enc=False):
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+        if epoch%5 == 0:
+            with open('/content/drive/MyColabFiles/myfile.txt', 'w') as f:
+                f.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
+                epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -723,7 +727,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
-    parser.add_argument('--epochs-save', type=int, default=1)  # You can use this value to save model every X epochs
+    parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
