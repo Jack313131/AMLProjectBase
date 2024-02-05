@@ -4,12 +4,23 @@
 #######################
 
 import torch
+import os
+import gc
+import random
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 import torchvision.models as models
+from PIL import Image, ImageOps
+
+import torchvision.transforms as transforms
+
+from transform import Relabel, ToLabel, Colorize
+from visualize import Dashboard
+
 
 from simsiam.builder import SimSiam
+import simsiam.loader
 
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
@@ -66,22 +77,8 @@ class non_bottleneck_1d (nn.Module):
 class Encoder(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.initial_block = DownsamplerBlock(3,16)
-
-        self.layers = nn.ModuleList()
-
-        self.layers.append(DownsamplerBlock(16,64))
-
-        for x in range(0, 5):    #5 times
-           self.layers.append(non_bottleneck_1d(64, 0.03, 1)) 
-
-        self.layers.append(DownsamplerBlock(64,128))
-
-        for x in range(0, 2):    #2 times
-            self.layers.append(non_bottleneck_1d(128, 0.3, 2))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 4))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 8))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 16))
+        base_encoder = models.__dict__['resnet50']
+        self.encoder = SimSiam(base_encoder, num_classes)
 
         #Only in encoder mode:
         self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
@@ -96,8 +93,8 @@ class Encoder(nn.Module):
             output = self.output_conv(output)
 
         return output
-
 '''
+
 class UpsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
@@ -113,6 +110,13 @@ class Decoder (nn.Module):
     def __init__(self, num_classes):
         super().__init__()
 
+        self.adapt_layer = nn.Sequential(
+            # Layer per trasformare [6, 2048] in [6, 128, 4, 4]
+            nn.Unflatten(1, (128, 4, 4)),
+            # Layer di convoluzione per adattare le dimensioni spaziali
+            nn.ConvTranspose2d(128, 128, kernel_size=(8,16), stride=(8,16)),
+        ) 
+
         self.layers = nn.ModuleList()
 
         self.layers.append(UpsamplerBlock(128,64))
@@ -127,7 +131,7 @@ class Decoder (nn.Module):
 
     def forward(self, input):
         output = input
-
+        output = self.adapt_layer(output)
         for layer in self.layers:
             output = layer(output)
 
@@ -141,17 +145,63 @@ class Net(nn.Module):
         super().__init__()
         base_encoder = models.__dict__['resnet50']
         if (encoder == None):
-            self.encoder = SimSiam(base_encoder, num_classes)
+            #self.encoder = SimSiam(base_encoder, num_classes)
+            self.encoder = SimSiam(base_encoder)
         else:
             self.encoder = encoder
         self.decoder = Decoder(num_classes)
 
-    def forward(self, input, labels, only_encode=False):
-        input1 = input #add some trasformations
-        input2 = labels #add some trasformations
+    def loadInitialWeigth(self,path):
+        assert os.path.isfile(path) ,f"loadInitialWeigth path is wrong : {path}"
+        if os.path.isfile(path):
+            print("Loading weigths SimSiam ... ")
+            ckpt = torch.load(path,map_location="cuda" if torch.cuda.is_available() else "cpu")
+            ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['model'].items()}
+            self.encoder.load_state_dict(ckpt_backbone)
+            print("Weigths loaded SimSiam ... ")
+            del ckpt, ckpt_backbone
+            gc.collect()
+        else:
+            print("NOT Loaded weigths SimSiam ... ")
+
+    def trasform(input, target):
+        # hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
+        # if (
+        #         hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+        #     input = input.transpose(Image.FLIP_LEFT_RIGHT)
+        #     target = target.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # transX = random.randint(-2, 2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
+        # transY = random.randint(-2, 2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
+
+        # input = ImageOps.expand(input, border=(transX, transY, 0, 0), fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
+        # target = ImageOps.expand(target, border=(transX, transY, 0, 0), fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
+
+        # input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
+        # target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
+        # return input, target
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+        augmentation = [
+            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+            transforms.RandomApply([
+                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+            ], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize
+        ]
+        return simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation))
+
+    def forward(self, input1, input2, only_encode=False):
+        #input1 = self.trasform(input) #add some trasformations
+        #input2 = self.trasform(input) #add some trasformations
         if only_encode:
             return self.encoder.forward(input1, input2)
         else:
-            _, _, z1, z2 = self.encoder(input)    #predict=False by default
-            output = 0.5 * (z1 + z2)
-            return self.decoder.forward(output)
+            p1, _, _, _ = self.encoder(input1, input2)    #predict=False by default
+            return self.decoder.forward(p1)
+            #return self.decoder.forward(input)
+

@@ -41,7 +41,7 @@ class SimSiam(nn.Module):
                                         nn.BatchNorm1d(pred_dim),
                                         nn.ReLU(inplace=True), # hidden layer
                                         nn.Linear(pred_dim, dim)) # output layer
-
+        
     def forward(self, x1, x2):
         """
         Input:

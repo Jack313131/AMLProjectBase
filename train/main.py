@@ -210,6 +210,7 @@ def train(args, model, enc=False):
 
     if args.cuda:
         weight = weight.cuda()
+    
     criterion = CrossEntropyLoss2d(weight)
     # print(type(criterion))
 
@@ -240,8 +241,8 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
-    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=0)  ## scheduler 2
+    optimizer = Adam(model.parameters(), 5e-5, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
+    #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
@@ -260,7 +261,8 @@ def train(args, model, enc=False):
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
-
+    if not args.resume and args.model.casefold().replace(" ", "") == "simsiam" :
+        model.module.loadInitialWeigth("/content/drive/MyDrive/AML/checkpoint_simsiam.pth")
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
     # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
     # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
@@ -274,7 +276,8 @@ def train(args, model, enc=False):
     # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
     # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
 
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=5e-5, max_lr=1e-3, step_size_up=20, mode='triangular', cycle_momentum=False) # scheduler 3
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
 
@@ -282,6 +285,18 @@ def train(args, model, enc=False):
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
+    if args.freezingBackbone:
+      print("Freezing the backbone ... ")
+      # Congela i pesi dell'encoder
+      if isinstance(model, torch.nn.DataParallel):
+        for param in model.module.encoder.parameters():
+          param.requires_grad = False
+      else:
+        for param in model.encoder.parameters():
+          param.requires_grad = False
+    else:
+        print("Not freezing the backbone ... ")
+
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -318,7 +333,7 @@ def train(args, model, enc=False):
         for step, (images, labels) in enumerate(loader):
 
             start_time = time.time()
-            # print (labels.size())
+            print (images.size())
             # print (np.unique(labels.numpy()))
             # print("labels: ", np.unique(labels[0].numpy()))
             # labels = torch.ones(4, 1, 512, 1024).long()
@@ -345,11 +360,10 @@ def train(args, model, enc=False):
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
             if "ENet" in args.model:
-              outputs = model(inputs)
+                outputs = model(inputs)
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
-            optimizer.zero_grad()
 
             # print(outputs.size())
             # print(targets.size())
@@ -357,23 +371,23 @@ def train(args, model, enc=False):
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
-
+            optimizer.zero_grad()
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-            for name, param in model.named_parameters():
-                if param.grad is not None:
-                    if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
-                        print(f"NaN or Inf found in gradients of {name}")
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
+            #             print(f"NaN or Inf found in gradients of {name}")
 
-            for name, param in model.named_parameters():
-                if torch.isnan(param.data).any():
-                    print(f"NaN found in weights of {name}")
-                if torch.isinf(param.data).any():
-                    print(f"Inf found in weights of {name}")
+            # for name, param in model.named_parameters():
+            #     if torch.isnan(param.data).any():
+            #         print(f"NaN found in weights of {name}")
+            #     if torch.isinf(param.data).any():
+            #         print(f"Inf found in weights of {name}")
 
             # for name, param in model.named_parameters():
             # if param.requires_grad:
@@ -482,14 +496,19 @@ def train(args, model, enc=False):
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                    outputs = model(inputs, only_encode=enc)
+                    #if "simsiam" in args.model:
+                        p1, p2, z1, z2 = model(inputs[0], inputs[1], only_encode=enc)
+                    #else:
+                        outputs = model(inputs, only_encode=enc)
                 if "ENet" in args.model:
                     outputs = model(inputs)
-                
-                if "SimSiam" in args.model:
+                if "simsiam" in args.model:
                     outputs = model(inputs)
 
-                loss = criterion(outputs, targets[:, 0])
+                if "simsiam" in args.model:
+                    loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
+                else:
+                    loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
@@ -603,6 +622,8 @@ def main(args):
         model = model_file.Net(NUM_CLASSES)
     if "ENet" in args.model:
         model = model_file.ENet(NUM_CLASSES)
+    if "SimSiam" in args.model:
+        model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:
@@ -697,6 +718,7 @@ if __name__ == '__main__':
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)
+    parser.add_argument('--port', default=False)
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
