@@ -114,7 +114,7 @@ class Decoder (nn.Module):
             # Layer per trasformare [6, 2048] in [6, 128, 4, 4]
             nn.Unflatten(1, (128, 4, 4)),
             # Layer di convoluzione per adattare le dimensioni spaziali
-            nn.ConvTranspose2d(128, 128, kernel_size=(8,16), stride=(8,16)),
+            nn.ConvTranspose2d(128, 128, kernel_size=(16,32), stride=(16,32)),
         ) 
 
         self.layers = nn.ModuleList()
@@ -132,6 +132,7 @@ class Decoder (nn.Module):
     def forward(self, input):
         output = input
         output = self.adapt_layer(output)
+        #print("Output adapt: ", output.shape)
         for layer in self.layers:
             output = layer(output)
 
@@ -156,7 +157,7 @@ class Net(nn.Module):
         if os.path.isfile(path):
             print("Loading weigths SimSiam ... ")
             ckpt = torch.load(path,map_location="cuda" if torch.cuda.is_available() else "cpu")
-            ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['model'].items()}
+            ckpt_backbone = {key.replace("module.", ""): value for key, value in ckpt['state_dict'].items()}
             self.encoder.load_state_dict(ckpt_backbone)
             print("Weigths loaded SimSiam ... ")
             del ckpt, ckpt_backbone
@@ -195,13 +196,14 @@ class Net(nn.Module):
         ]
         return simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation))
 
-    def forward(self, input1, input2, only_encode=False):
+    def forward(self, input, only_encode=False):
         #input1 = self.trasform(input) #add some trasformations
         #input2 = self.trasform(input) #add some trasformations
         if only_encode:
-            return self.encoder.forward(input1, input2)
+            return self.encoder.forward(input, input)
         else:
-            p1, _, _, _ = self.encoder(input1, input2)    #predict=False by default
+            p1, _, _, _ = self.encoder(input, input)   #predict=False by default
+            #print("P1: ", p1.shape)
             return self.decoder.forward(p1)
             #return self.decoder.forward(input)
 

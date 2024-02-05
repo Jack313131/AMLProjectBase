@@ -261,7 +261,7 @@ def train(args, model, enc=False):
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
-    if not args.resume and args.model.casefold().replace(" ", "") == "simsiam" :
+    if not args.resume and args.model.casefold().replace(" ", "") == "erfnet+simsiam" :
         model.module.loadInitialWeigth("/content/drive/MyDrive/[SimSiam]/checkpoint_simsiam.pth.tar")
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
     # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
@@ -359,6 +359,7 @@ def train(args, model, enc=False):
                 outputs = outputs.float()
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
+                #print("Outputs: ", outputs.shape)
             if "ENet" in args.model:
                 outputs = model(inputs)
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
@@ -366,7 +367,7 @@ def train(args, model, enc=False):
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
 
             # print(outputs.size())
-            # print(targets.size())
+            # print(targets.shape)
             # targets = targets.float()
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
@@ -496,9 +497,6 @@ def train(args, model, enc=False):
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                    #if "simsiam" in args.model:
-                        p1, p2, z1, z2 = model(inputs[0], inputs[1], only_encode=enc)
-                    #else:
                         outputs = model(inputs, only_encode=enc)
                 if "ENet" in args.model:
                     outputs = model(inputs)
@@ -718,7 +716,8 @@ if __name__ == '__main__':
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)
-    parser.add_argument('--port', default=False)
+    parser.add_argument('--backbone', default=False)
+    parser.add_argument("--freezingBackbone", action='store_true')
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
