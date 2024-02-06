@@ -267,7 +267,7 @@ def train(args, model, enc=False):
             filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
 
         assert os.path.exists(
-            filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
+            filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
         checkpoint = torch.load(filenameCheckpoint_drive)
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
