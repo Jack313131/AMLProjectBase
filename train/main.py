@@ -215,19 +215,29 @@ def train(args, model, enc=False):
     # print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
+    drivedir = '/content/drive/MyDrive/[SimSiam]'
 
     if (enc):
         automated_log_path = savedir + "/automated_log_encoder.txt"
         modeltxtpath = savedir + "/model_encoder.txt"
+        automated_log_path_drive = drivedir + "/automated_log_encoder.txt"
+        modeltxtpath_drive = drivedir + "/model_encoder.txt"
     else:
         automated_log_path = savedir + "/automated_log.txt"
         modeltxtpath = savedir + "/model.txt"
+        automated_log_path_drive = drivedir + "/automated_log.txt"
+        modeltxtpath_drive = drivedir + "/model.txt"
 
     if (not os.path.exists(automated_log_path)):  # dont add first line if it exists
         with open(automated_log_path, "a") as myfile:
             myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
+    if (not os.path.exists(automated_log_path_drive)):  # dont add first line if it exists
+        with open(automated_log_path_drive, "a") as myfile:
+            myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
 
     with open(modeltxtpath, "w") as myfile:
+        myfile.write(str(model))
+    with open(modeltxtpath_drive, "w") as myfile:
         myfile.write(str(model))
 
     # TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
@@ -245,19 +255,20 @@ def train(args, model, enc=False):
     #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
-    drivedir = '/content/drive/MyDrive/[SimSiam]'
 
     start_epoch = 1
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
         if enc:
             filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
         else:
             filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
 
         assert os.path.exists(
             filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
-        checkpoint = torch.load(filenameCheckpoint)
+        checkpoint = torch.load(filenameCheckpoint_drive)
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -555,13 +566,13 @@ def train(args, model, enc=False):
         if enc:
             filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
             filenameBest = savedir + '/model_best_enc.pth.tar'
-            filenameCheckpointdir = drivedir + '/checkpoint_enc.pth.tar'
-            filenameBestdir = drivedir + '/model_best_enc.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
+            filenameBest_drive = drivedir + '/model_best_enc.pth.tar'
         else:
             filenameCheckpoint = savedir + '/checkpoint.pth.tar'
             filenameBest = savedir + '/model_best.pth.tar'
-            filenameCheckpointdir = drivedir + '/checkpoint.pth.tar'
-            filenameBestdir = drivedir + '/model_best.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
+            filenameBest_drive = drivedir + '/model_best.pth.tar'
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
@@ -575,26 +586,26 @@ def train(args, model, enc=False):
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
-        }, is_best, filenameCheckpointdir, filenameBestdir)
+        }, is_best, filenameCheckpoint_drive, filenameBest_drive)
 
         # SAVE MODEL AFTER EPOCH
         if (enc):
             filename = f'{savedir}/model_encoder-{epoch:03}.pth'
             filenamebest = f'{savedir}/model_encoder_best.pth'
-            filenamedir = f'{drivedir}/model_encoder-{epoch:03}.pth'
-            filenamebestdir = f'{drivedir}/model_encoder_best.pth'
+            filename_drive = f'{drivedir}/model_encoder-{epoch:03}.pth'
+            filenamebest_drive = f'{drivedir}/model_encoder_best.pth'
         else:
             filename = f'{savedir}/model-{epoch:03}.pth'
             filenamebest = f'{savedir}/model_best.pth'
-            filenamedir = f'{drivedir}/model-{epoch:03}.pth'
-            filenamebestdir = f'{drivedir}/model_best.pth'
+            filename_drive = f'{drivedir}/model-{epoch:03}.pth'
+            filenamebest_drive = f'{drivedir}/model_best.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
             torch.save(model.state_dict(), filename)
-            torch.save(model.state_dict(), filenamedir)
+            torch.save(model.state_dict(), filename_drive)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
             torch.save(model.state_dict(), filenamebest)
-            torch.save(model.state_dict(), filenamebestdir)
+            torch.save(model.state_dict(), filenamebest_drive)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
@@ -612,10 +623,9 @@ def train(args, model, enc=False):
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
-        if epoch%5 == 0:
-            with open(drivedir+'/automated_log.txt', 'w') as f:
-                f.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
-                epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+        with open(drivedir+'/automated_log.txt', 'a') as f:
+            f.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
+            epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -629,11 +639,14 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 
 def main(args):
     savedir = f'../save/{args.savedir}'
+    drivedir = '/content/drive/MyDrive/[SimSiam]'
 
     if not os.path.exists(savedir):
         os.makedirs(savedir)
 
     with open(savedir + '/opts.txt', "w") as myfile:
+        myfile.write(str(args))
+    with open(drivedir + '/opts.txt', "w") as myfile:
         myfile.write(str(args))
 
     # Load Model
@@ -648,6 +661,7 @@ def main(args):
     if "SimSiam" in args.model:
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
     if args.cuda:
         model = torch.nn.DataParallel(model).cuda()
