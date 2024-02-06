@@ -218,25 +218,25 @@ def train(args, model, enc=False):
     drivedir = '/content/drive/MyDrive/[SimSiam]'
 
     if (enc):
-        automated_log_path = savedir + "/automated_log_encoder.txt"
-        modeltxtpath = savedir + "/model_encoder.txt"
+        # automated_log_path = savedir + "/automated_log_encoder.txt"
+        # modeltxtpath = savedir + "/model_encoder.txt"
         automated_log_path_drive = drivedir + "/automated_log_encoder.txt"
         modeltxtpath_drive = drivedir + "/model_encoder.txt"
     else:
-        automated_log_path = savedir + "/automated_log.txt"
-        modeltxtpath = savedir + "/model.txt"
+        # automated_log_path = savedir + "/automated_log.txt"
+        # modeltxtpath = savedir + "/model.txt"
         automated_log_path_drive = drivedir + "/automated_log.txt"
         modeltxtpath_drive = drivedir + "/model.txt"
 
-    if (not os.path.exists(automated_log_path)):  # dont add first line if it exists
-        with open(automated_log_path, "a") as myfile:
-            myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
+    # if (not os.path.exists(automated_log_path)):  # dont add first line if it exists
+    #     with open(automated_log_path, "a") as myfile:
+    #         myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
     if (not os.path.exists(automated_log_path_drive)):  # dont add first line if it exists
         with open(automated_log_path_drive, "a") as myfile:
             myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
 
-    with open(modeltxtpath, "w") as myfile:
-        myfile.write(str(model))
+    # with open(modeltxtpath, "w") as myfile:
+    #     myfile.write(str(model))
     with open(modeltxtpath_drive, "w") as myfile:
         myfile.write(str(model))
 
@@ -260,10 +260,10 @@ def train(args, model, enc=False):
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
         if enc:
-            filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+            #filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
         else:
-            filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+            #filenameCheckpoint = savedir + '/checkpoint.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
 
         assert os.path.exists(
@@ -564,22 +564,22 @@ def train(args, model, enc=False):
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
         if enc:
-            filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
-            filenameBest = savedir + '/model_best_enc.pth.tar'
+            #filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+            #filenameBest = savedir + '/model_best_enc.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
             filenameBest_drive = drivedir + '/model_best_enc.pth.tar'
         else:
-            filenameCheckpoint = savedir + '/checkpoint.pth.tar'
-            filenameBest = savedir + '/model_best.pth.tar'
+            # filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+            # filenameBest = savedir + '/model_best.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
             filenameBest_drive = drivedir + '/model_best.pth.tar'
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': str(model),
-            'state_dict': model.state_dict(),
-            'best_acc': best_acc,
-            'optimizer': optimizer.state_dict(),
-        }, is_best, filenameCheckpoint, filenameBest)
+        # save_checkpoint({
+        #     'epoch': epoch + 1,
+        #     'arch': str(model),
+        #     'state_dict': model.state_dict(),
+        #     'best_acc': best_acc,
+        #     'optimizer': optimizer.state_dict(),
+        # }, is_best, filenameCheckpoint, filenameBest)
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
@@ -590,39 +590,39 @@ def train(args, model, enc=False):
 
         # SAVE MODEL AFTER EPOCH
         if (enc):
-            filename = f'{savedir}/model_encoder-{epoch:03}.pth'
-            filenamebest = f'{savedir}/model_encoder_best.pth'
+            # filename = f'{savedir}/model_encoder-{epoch:03}.pth'
+            # filenamebest = f'{savedir}/model_encoder_best.pth'
             filename_drive = f'{drivedir}/model_encoder-{epoch:03}.pth'
             filenamebest_drive = f'{drivedir}/model_encoder_best.pth'
         else:
-            filename = f'{savedir}/model-{epoch:03}.pth'
-            filenamebest = f'{savedir}/model_best.pth'
+            # filename = f'{savedir}/model-{epoch:03}.pth'
+            # filenamebest = f'{savedir}/model_best.pth'
             filename_drive = f'{drivedir}/model-{epoch:03}.pth'
             filenamebest_drive = f'{drivedir}/model_best.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
-            torch.save(model.state_dict(), filename)
+            #torch.save(model.state_dict(), filename)
             torch.save(model.state_dict(), filename_drive)
-            print(f'save: {filename} (epoch: {epoch})')
+            print(f'save: {filename_drive} (epoch: {epoch})')
         if (is_best):
-            torch.save(model.state_dict(), filenamebest)
+            #torch.save(model.state_dict(), filenamebest)
             torch.save(model.state_dict(), filenamebest_drive)
-            print(f'save: {filenamebest} (epoch: {epoch})')
+            print(f'save: {filenamebest_drive} (epoch: {epoch})')
             if (not enc):
-                with open(savedir + "/best.txt", "w") as myfile:
-                    myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                # with open(savedir + "/best.txt", "w") as myfile:
+                #     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
                 with open(drivedir + "/best.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
             else:
-                with open(savedir + "/best_encoder.txt", "w") as myfile:
-                    myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                # with open(savedir + "/best_encoder.txt", "w") as myfile:
+                #     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
                 with open(drivedir + "/best_encoder.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
-        with open(automated_log_path, "a") as myfile:
-            myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
-                epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+        # with open(automated_log_path, "a") as myfile:
+        #     myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
+        #         epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
         with open(drivedir+'/automated_log.txt', 'a') as f:
             f.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
             epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
@@ -641,11 +641,13 @@ def main(args):
     savedir = f'../save/{args.savedir}'
     drivedir = '/content/drive/MyDrive/[SimSiam]'
 
-    if not os.path.exists(savedir):
-        os.makedirs(savedir)
+    # if not os.path.exists(savedir):
+    #     os.makedirs(savedir)
+    if not os.path.exists(drivedir):
+        assert("Drivedir does not exist")
 
-    with open(savedir + '/opts.txt', "w") as myfile:
-        myfile.write(str(args))
+    # with open(savedir + '/opts.txt', "w") as myfile:
+    #     myfile.write(str(args))
     with open(drivedir + '/opts.txt', "w") as myfile:
         myfile.write(str(args))
 
@@ -660,7 +662,7 @@ def main(args):
         model = model_file.ENet(NUM_CLASSES)
     if "SimSiam" in args.model:
         model = model_file.Net(NUM_CLASSES)
-    copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    #copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
     if args.cuda:
