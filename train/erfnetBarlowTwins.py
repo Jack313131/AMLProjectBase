@@ -176,10 +176,10 @@ class Net(nn.Module):
         else:
             print("NOT Loaded weigths barlowTwins ... ")
 
-    def forward(self, input,only_encode=False):
+    def forward(self, input,input2,only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
-            output = self.encoder(input)  # predict=False by default
+            output = self.encoder(input,input2)  # predict=False by default
             #print(output.size())
             return self.decoder.forward(output)

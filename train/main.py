@@ -315,7 +315,7 @@ def train(args, model, enc=False):
         # In questo caso, enumerate(loader) restituisce due valori ad ogni iterazione: un indice (che viene assegnato a step) e i valori (in questo caso, tuple (images, labels)). Dove :
         # step --> In ogni iterazione del ciclo for, step assume il valore dell'indice corrente fornito da enumerate. Inizia da 0 e si incrementa di 1 ad ogni iterazione. Quindi, step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader.
         # (images, labels) --> tupla di dim batch_size. Ovvero al suo interno ha batch_size coppie di immagine e relativo ground truth
-        for step, (images, labels) in enumerate(loader):
+        for step, (images,image2, labels) in enumerate(loader):
 
             start_time = time.time()
             # print (labels.size())
@@ -325,12 +325,16 @@ def train(args, model, enc=False):
             if args.cuda:
                 images = images.cuda()
                 labels = labels.cuda()
+                image2 = image2.cuda()
 
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
             # calcolare i gradienti durante la backpropagation.Da PyTorch 0.4 in poi, la funzionalità di Variable è stata integrata direttamente nei tensori, ora, ogni tensore ha un attributo requires_grad che, se impostato su True, abilita il calcolo del gradiente per quel tensore in modo simile a come funzionavano le Variable.
             images.requires_grad_(True)
             inputs = images
+
+            image2.requires_grad_(True)
+            inputs2 = image2
 
             # inputs = inputs.to(torch.float64)
             # target_tensor = target_tensor.to(torch.float64)
@@ -343,7 +347,7 @@ def train(args, model, enc=False):
                 outputs = outputs[0]
                 outputs = outputs.float()
             if "erfnet" in args.model:
-                outputs = model(inputs, only_encode=enc)
+                outputs = model(inputs,inputs2, only_encode=enc)
 
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
