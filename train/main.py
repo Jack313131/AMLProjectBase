@@ -257,6 +257,7 @@ def train(args, model, enc=False):
 
 
     start_epoch = 1
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=5e-5, max_lr=1e-3, step_size_up=20, mode='triangular', cycle_momentum=False) # scheduler 3
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
         if enc:
@@ -268,10 +269,10 @@ def train(args, model, enc=False):
 
         assert os.path.exists(
             filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
-        if 'scheduler' in checkpoint:
-            scheduler.load_state_dict(checkpoint['scheduler'])
 
         checkpoint = torch.load(filenameCheckpoint_drive)
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -293,7 +294,6 @@ def train(args, model, enc=False):
     # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=5e-5, max_lr=1e-3, step_size_up=20, mode='triangular', cycle_momentum=False) # scheduler 3
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
 
