@@ -268,6 +268,9 @@ def train(args, model, enc=False):
 
         assert os.path.exists(
             filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
+
         checkpoint = torch.load(filenameCheckpoint_drive)
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
@@ -580,12 +583,20 @@ def train(args, model, enc=False):
         #     'best_acc': best_acc,
         #     'optimizer': optimizer.state_dict(),
         # }, is_best, filenameCheckpoint, filenameBest)
+        # save_checkpoint({
+        #     'epoch': epoch + 1,
+        #     'arch': str(model),
+        #     'state_dict': model.state_dict(),
+        #     'best_acc': best_acc,
+        #     'optimizer': optimizer.state_dict(),
+        # }, is_best, filenameCheckpoint_drive, filenameBest_drive)
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict()
         }, is_best, filenameCheckpoint_drive, filenameBest_drive)
 
         # SAVE MODEL AFTER EPOCH
