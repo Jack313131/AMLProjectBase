@@ -295,7 +295,7 @@ def train(args, model, enc=False):
         gc.collect()
 
     if not args.resume and args.backbone:
-        model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
+        model.module.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -447,7 +447,7 @@ def train(args, model, enc=False):
         if (doIouVal):
             iouEvalVal = iouEval(NUM_CLASSES)
 
-        for step, (images, labels) in enumerate(loader_val):
+        for step, (images,images2, labels) in enumerate(loader_val):
             # Con l'integrazione delle funzionalità di Variable direttamente nei tensori in PyTorch 0.4 e versioni successive, l'uso di volatile è stato deprecato.
             # Al suo posto, PyTorch ha introdotto un modo più intuitivo e meno soggetto a errori per gestire il calcolo dei gradienti: il contesto with torch.no_grad():
             # Quando si eseguono operazioni all'interno di un blocco with torch.no_grad():, PyTorch non traccia, calcola o memorizza gradienti. Questo riduce l'uso della memoria e accelera i calcoli quando i gradienti non sono necessari, come appunto durante l'inferenza o il test.
@@ -456,9 +456,13 @@ def train(args, model, enc=False):
                 if args.cuda:
                     images = images.cuda()
                     labels = labels.cuda()
+                    images2 = images.cuda()
 
                 images.requires_grad_(True)
                 inputs = images
+
+                images2.requires_grad_(True)
+                inputs2 = images2
 
                 targets = labels
 
@@ -467,7 +471,7 @@ def train(args, model, enc=False):
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                    outputs = model(inputs, only_encode=enc)
+                    outputs = model(inputs,inputs2, only_encode=enc)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
@@ -599,15 +603,15 @@ def main(args):
         myfile.write(str(args))
 
     # Load Model
-    assert os.path.exists(args.model + ".py"), "Error: model definition not found"
-    model_file = importlib.import_module(args.model)
+    assert os.path.exists("erfnetBarlowTwins" + ".py"), "Error: model definition not found"
+    model_file = importlib.import_module("erfnetBarlowTwins")
     if "BiSeNet" in args.model:
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model and args.backbone:
         model = model_file.Net(NUM_CLASSES,encoder=None, batch_size = args.batch_size,backbone = args.backbone)
     if "erfnet" in args.model and not args.backbone:
         model = model_file.Net(NUM_CLASSES,encoder=None)
-    copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    copyfile("erfnetBarlowTwins" + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:
         model = torch.nn.DataParallel(model).cuda()

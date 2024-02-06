@@ -104,7 +104,7 @@ class BarlowTwins(nn.Module):
 
     # self.projector = nn.Sequential(*layers)
 
-    def forward(self, x1,x2):
+    def forward(self, x1, x2):
         z1 = self.projector(self.backbone(x1))
         z2 = self.projector(self.backbone(x2))
 
@@ -112,12 +112,12 @@ class BarlowTwins(nn.Module):
         c = self.bn(z1).T @ self.bn(z2)
 
         # sum the cross-correlation matrix between all gpus
-        c.div_(self.args.batch_size)
-        torch.distributed.all_reduce(c)
+        c.div_(self.batch_size)
+        # torch.distributed.all_reduce(c)
 
         on_diag = torch.diagonal(c).add_(-1).pow_(2).sum()
         off_diag = off_diagonal(c).pow_(2).sum()
-        loss = on_diag + self.args.lambd * off_diag
-        return z1*loss
+        loss = on_diag + self.lambd * off_diag
 
-        return x
+        return z1 * loss
+
