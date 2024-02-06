@@ -290,7 +290,7 @@ def train(args, model, enc=False):
         best_acc = checkpoint['best_acc']
         if 'scheduler' in checkpoint:
             scheduler.load_state_dict(checkpoint['scheduler'])
-        print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
+        print("=> Loaded checkpoint at epoch {}".format(checkpoint['epoch']))
         del checkpoint
         gc.collect()
 
@@ -547,13 +547,13 @@ def train(args, model, enc=False):
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
-        if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
-            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "")
-            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+        if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
+            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "")
+            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
 
 
 
@@ -573,9 +573,14 @@ def saveOnDrive(epoch , model , pathOriginal):
     if os.path.isdir(drive):
         if not os.path.isdir(drive+f"AML/"):
             os.mkdir(drive+f"AML/")
-        if os.path.exists(drive + f"AML/{model}/"):
-            shutil.rmtree(drive + f"AML/{model}/")
-        shutil.copytree(pathOriginal, drive+f"AML/{model}/")
+        if not os.path.exists(drive + f"AML/{model}/"):
+            os.mkdir(drive + f"AML/{model}/")
+        shutil.copy2(pathOriginal+"/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
+        shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
+        shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
+        shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
+        if os.path.isfile(pathOriginal + "/model_best.pth"):
+            shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
         print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
     else:
         print("Drive is not linked ...")
