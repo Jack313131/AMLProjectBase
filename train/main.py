@@ -18,6 +18,8 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
+import torchvision.transforms as transforms
+import simsiam.loader
 
 from dataset import VOC12, cityscapes
 from transform import Relabel, ToLabel, Colorize
@@ -41,61 +43,84 @@ class MyCoTransform(object):
         self.enc = enc  # A flag (True/False) to enable additional processing on the target image.
         self.augment = augment  # A flag to enable or disable augmentation.
         self.height = height  # The desired height to resize images.
+        self.normalize = normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])
+        augmentation = [
+            transforms.RandomApply([
+                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+            ], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
+        ]
+        self.co_transform = augmentation
         pass
 
     def __call__(self, input, target):  # method is executed when an instance of the class MyCoTransform is invoked
 
-        # I due input contengono la stessa immagine di cui input è l'immagine di partenza mentre target è la stessa immagine dove ad ogni pixel è stato già stato
-        # assegnato un label, in questo caso ogni pixel avrà un valore tra 0 ee 19 dove ognuno di essi rappresenta la classa assegnata al pixel (ovvero il pixel i-esimo con valore 1 indica che è stato predetto come veicolo, 2 come auto etc etc)
-
-        # Resize strict the images to the target dimension self.height (define as parameter) and applies a transformation called (interpolazione)
-        # L'interpolazione è una tecnica utilizzata per il ridimensionamento delle immagini e per altre trasformazioni geometriche
-        # per calcolare i valori dei nuovi pixel basandosi sui pixel di partenza
         input = Resize(self.height, Image.BILINEAR)(
             input)  # L'interpolazione bilineare (BILINEAR) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione bilineare considera i 4 pixel più vicini nella posizione corrispondente dell'immagine originale. Il valore del nuovo pixel è calcolato come una media ponderata dei valori di questi quattro pixel. Le ponderazioni sono basate sulla distanza relativa del punto calcolato rispetto a ciascuno di questi quattro pixel. In termini semplici, più un pixel è vicino al punto calcolato, maggiore sarà il suo contributo al valore finale.
         target = Resize(self.height, Image.NEAREST)(
             target)  # L'interpolazione nearest neighbor (Nearest) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione nearest neighbor semplicemente seleziona il valore del pixel più vicino nell'immagine originale, senza considerare altri pixel vicini. In altre parole, il valore del nuovo pixel è uguale a quello del pixel più vicino nella posizione corrispondente dell'immagine originale.
 
-        if (self.augment):
-            # Random hflip
-            hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-            if (
-                    hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
-                input = input.transpose(Image.FLIP_LEFT_RIGHT)
-                target = target.transpose(Image.FLIP_LEFT_RIGHT)
+        # if (self.augment):
+        #     # Random hflip
+        #     hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
+        #     if (
+        #             hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+        #         input = input.transpose(Image.FLIP_LEFT_RIGHT)
+        #         target = target.transpose(Image.FLIP_LEFT_RIGHT)
 
-            # Random translation 0-2 pixels (fill rest with padding
-            # Both images are randomly shifted by 0-2 pixels in x and y directions
-            # Ad esempio transX = 2, transY = 2 sposta l'immagine verso destra e in basso, mentre una traslazione negativa (ad esempio transX = -2, transY = -2) sposta l'immagine verso sinistra e in alto.
-            transX = random.randint(-2,
-                                    2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
-            transY = random.randint(-2,
-                                    2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
+        #     # Random translation 0-2 pixels (fill rest with padding
+        #     # Both images are randomly shifted by 0-2 pixels in x and y directions
+        #     # Ad esempio transX = 2, transY = 2 sposta l'immagine verso destra e in basso, mentre una traslazione negativa (ad esempio transX = -2, transY = -2) sposta l'immagine verso sinistra e in alto.
+        #     transX = random.randint(-2,
+        #                             2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
+        #     transY = random.randint(-2,
+        #                             2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
 
-            # riga 66 e 67 servono per traslare l'immagine con i valori definiti da transX e transY e i pixel aggiunti vengono riempiti con logiche diverse a seconda se immagine input o immagine output
-            input = ImageOps.expand(input, border=(transX, transY, 0, 0),
-                                    fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
-            target = ImageOps.expand(target, border=(transX, transY, 0, 0),
-                                     fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
+        #     # riga 66 e 67 servono per traslare l'immagine con i valori definiti da transX e transY e i pixel aggiunti vengono riempiti con logiche diverse a seconda se immagine input o immagine output
+        #     input = ImageOps.expand(input, border=(transX, transY, 0, 0),
+        #                             fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
+        #     target = ImageOps.expand(target, border=(transX, transY, 0, 0),
+        #                              fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
 
-            # serve proprio a ritagliare l'immagine traslata per riportarla alle sue dimensioni originali, ma con il contenuto dell'immagine spostato in base ai valori di transX e transY.
-            # Questo ritaglio riduce le dimensioni dell'immagine traslata per farle corrispondere alle sue dimensioni originali. Tuttavia, a causa della traslazione precedente,
-            # la parte visibile dell'immagine sarà ora differente rispetto all'originale. Ad esempio, se l'immagine era stata spostata verso destra e in basso, il ritaglio rimuoverà parti dell'immagine originale dal lato destro e inferiore.
-            input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
-            target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
-
-        input = ToTensor()(input)
-        normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        input = normalize(input)
+        #     # serve proprio a ritagliare l'immagine traslata per riportarla alle sue dimensioni originali, ma con il contenuto dell'immagine spostato in base ai valori di transX e transY.
+        #     # Questo ritaglio riduce le dimensioni dell'immagine traslata per farle corrispondere alle sue dimensioni originali. Tuttavia, a causa della traslazione precedente,
+        #     # la parte visibile dell'immagine sarà ora differente rispetto all'originale. Ad esempio, se l'immagine era stata spostata verso destra e in basso, il ritaglio rimuoverà parti dell'immagine originale dal lato destro e inferiore.
+        #     input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
+        #     target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
+        
+        image1, image2, target =  self.TwoCropsTransform(input, target)
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(
                 target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
         target = ToLabel()(target)
+        image1 = ToTensor()(image1)
+        image1 = self.normalize(image1)
+        image2 = ToTensor()(image2)
+        image2 = self.normalize(image2)
         # l'operazione di Relabel consiste per l'output target ovvero quello che già ha una classificazione per ogni pixel, di cambiare tutti i pixel con valore 255 a valore 19
         # questo perchè magari pixel 255 non ha una label associata mentre 19 è la label per classificazione generica (es : background)
         target = Relabel(255, 19)(target)
 
-        return input, target
+        return image1, image2, target
+    
+    def TwoCropsTransform(self, input, label):
+        augmentation_all = [
+            transforms.RandomResizedCrop(size = (input.size[1], input.size[0]), scale=(0.2, 1.)),
+            transforms.RandomHorizontalFlip()
+        ]
+        transform = transforms.Compose(self.co_transform)
+        k = transform(input)
+        transform = transforms.Compose(augmentation_all)
+        k = transform(k)
+        transform = transforms.Compose(self.co_transform)
+        q = transform(input)
+        transform = transforms.Compose(augmentation_all)
+        q = transform(q)
+        l = transform(label)
+        return [q, k, l]
+
 
 
 class CrossEntropyLoss2d(torch.nn.Module):
@@ -347,7 +372,7 @@ def train(args, model, enc=False):
         # In questo caso, enumerate(loader) restituisce due valori ad ogni iterazione: un indice (che viene assegnato a step) e i valori (in questo caso, tuple (images, labels)). Dove :
         # step --> In ogni iterazione del ciclo for, step assume il valore dell'indice corrente fornito da enumerate. Inizia da 0 e si incrementa di 1 ad ogni iterazione. Quindi, step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader.
         # (images, labels) --> tupla di dim batch_size. Ovvero al suo interno ha batch_size coppie di immagine e relativo ground truth
-        for step, (images, labels) in enumerate(loader):
+        for step, (images1, images2, labels) in enumerate(loader):
 
             start_time = time.time()
             # print (images.size())
@@ -355,14 +380,17 @@ def train(args, model, enc=False):
             # print("labels: ", np.unique(labels[0].numpy()))
             # labels = torch.ones(4, 1, 512, 1024).long()
             if args.cuda:
-                images = images.cuda()
+                images1 = images1.cuda()
+                images2 = images2.cuda()
                 labels = labels.cuda()
 
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
             # calcolare i gradienti durante la backpropagation.Da PyTorch 0.4 in poi, la funzionalità di Variable è stata integrata direttamente nei tensori, ora, ogni tensore ha un attributo requires_grad che, se impostato su True, abilita il calcolo del gradiente per quel tensore in modo simile a come funzionavano le Variable.
-            images.requires_grad_(True)
-            inputs = images
+            images1.requires_grad_(True)
+            images2.requires_grad_(True)
+            inputs1 = images1
+            inputs2 = images2
 
             # inputs = inputs.to(torch.float64)
             # target_tensor = target_tensor.to(torch.float64)
@@ -371,14 +399,14 @@ def train(args, model, enc=False):
             targets = labels
 
             if "BiSeNet" in args.model:
-                outputs = model(inputs)
+                outputs = model(inputs1)
                 outputs = outputs[0]
                 outputs = outputs.float()
             if "erfnet" in args.model:
-                outputs = model(inputs, only_encode=enc)
+                outputs = model(inputs1, inputs2, only_encode=enc)
                 #print("Outputs: ", outputs.shape)
             if "ENet" in args.model:
-                outputs = model(inputs)
+                outputs = model(inputs1)
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
@@ -457,7 +485,7 @@ def train(args, model, enc=False):
             # print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 start_time_plot = time.time()
-                image = inputs[0].cpu().data
+                image = inputs1[0].cpu().data
                 # image[0] = image[0] * .229 + .485
                 # image[1] = image[1] * .224 + .456
                 # image[2] = image[2] * .225 + .406
@@ -494,31 +522,34 @@ def train(args, model, enc=False):
         if (doIouVal):
             iouEvalVal = iouEval(NUM_CLASSES)
 
-        for step, (images, labels) in enumerate(loader_val):
+        for step, (images1, images2, labels) in enumerate(loader_val):
             # Con l'integrazione delle funzionalità di Variable direttamente nei tensori in PyTorch 0.4 e versioni successive, l'uso di volatile è stato deprecato.
             # Al suo posto, PyTorch ha introdotto un modo più intuitivo e meno soggetto a errori per gestire il calcolo dei gradienti: il contesto with torch.no_grad():
             # Quando si eseguono operazioni all'interno di un blocco with torch.no_grad():, PyTorch non traccia, calcola o memorizza gradienti. Questo riduce l'uso della memoria e accelera i calcoli quando i gradienti non sono necessari, come appunto durante l'inferenza o il test.
             with torch.no_grad():
                 start_time = time.time()
                 if args.cuda:
-                    images = images.cuda()
+                    images1 = images1.cuda()
+                    images2 = images2.cuda()
                     labels = labels.cuda()
 
-                images.requires_grad_(True)
-                inputs = images
+                images1.requires_grad_(True)
+                images2.requires_grad_(True)
+                inputs1 = images1
+                inputs2 = images2
 
                 targets = labels
 
                 if "BiSeNet" in args.model:
-                    outputs = model(inputs)
+                    outputs = model(inputs1)
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                    outputs = model(inputs, only_encode=enc)
+                    outputs = model(inputs1, inputs2, only_encode=enc)
                 if "ENet" in args.model:
-                    outputs = model(inputs)
+                    outputs = model(inputs1)
                 if "simsiam" in args.model:
-                    outputs = model(inputs)
+                    outputs = model(inputs1)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
@@ -532,7 +563,7 @@ def train(args, model, enc=False):
 
                 if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                     start_time_plot = time.time()
-                    image = inputs[0].cpu().data
+                    image = inputs1[0].cpu().data
                     board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                     if isinstance(outputs, list):  # merge gpu tensors
                         board.image(color_transform(outputs[0][0].cpu().max(0)[1].data.unsqueeze(0)),

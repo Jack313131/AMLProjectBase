@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 import torchvision.models as models
+import torchvision.transforms.functional as TF
 from PIL import Image, ImageOps
 
 import torchvision.transforms as transforms
@@ -145,6 +146,7 @@ class Net(nn.Module):
     def __init__(self, num_classes, encoder=None):  #use encoder to pass pretrained encoder
         super().__init__()
         base_encoder = models.__dict__['resnet50']
+        self.criterion = nn.CosineSimilarity(dim=1).cuda()
         if (encoder == None):
             #self.encoder = SimSiam(base_encoder, num_classes)
             self.encoder = SimSiam(base_encoder)
@@ -165,45 +167,15 @@ class Net(nn.Module):
         else:
             print("NOT Loaded weigths SimSiam ... ")
 
-    def trasform(input, target):
-        # hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-        # if (
-        #         hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
-        #     input = input.transpose(Image.FLIP_LEFT_RIGHT)
-        #     target = target.transpose(Image.FLIP_LEFT_RIGHT)
-
-        # transX = random.randint(-2, 2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
-        # transY = random.randint(-2, 2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
-
-        # input = ImageOps.expand(input, border=(transX, transY, 0, 0), fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
-        # target = ImageOps.expand(target, border=(transX, transY, 0, 0), fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
-
-        # input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
-        # target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
-        # return input, target
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-        augmentation = [
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
-            transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-            ], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize
-        ]
-        return simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation))
-
-    def forward(self, input, only_encode=False):
-        #input1 = self.trasform(input) #add some trasformations
-        #input2 = self.trasform(input) #add some trasformations
+    def forward(self, input1, input2, only_encode=False):
+        #print("1: {}, 2: {}".format(input.shape, input2.shape))
         if only_encode:
-            return self.encoder.forward(input, input)
+            return self.encoder.forward(input1, input2)
         else:
-            p1, _, _, _ = self.encoder(input, input)   #predict=False by default
-            #print("P1: ", p1.shape)
-            return self.decoder.forward(p1)
+            p1, p2, z1, z2 = self.encoder(input1, input2)   #predict=False by default
+            loss = -(self.criterion(p1, z2).mean() + self.criterion(p2, z1).mean()) * 0.5
+            #print("Input: {}, loss: {}".format(input.shape, loss))
+            output = p1*loss
+            #print("Output: ", output.shape)
+            return self.decoder.forward(output)
             #return self.decoder.forward(input)
-
