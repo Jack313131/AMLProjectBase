@@ -294,7 +294,7 @@ def train(args, model, enc=False):
         del checkpoint
         gc.collect()
 
-    if not args.resume and args.model.casefold().replace(" ", ""):
+    if not args.resume and args.backbone:
         model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
@@ -347,6 +347,10 @@ def train(args, model, enc=False):
         # step --> In ogni iterazione del ciclo for, step assume il valore dell'indice corrente fornito da enumerate. Inizia da 0 e si incrementa di 1 ad ogni iterazione. Quindi, step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader.
         # (images, labels) --> tupla di dim batch_size. Ovvero al suo interno ha batch_size coppie di immagine e relativo ground truth
         for step, (images, labels) in enumerate(loader):
+
+            if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
+                modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
+                saveOnDrive(epoch=epoch, model=modelFilenameDrive,pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/")
 
             start_time = time.time()
             # print (labels.size())
@@ -549,7 +553,7 @@ def train(args, model, enc=False):
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
             modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
-            #saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/{savedir}/")
+            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
@@ -569,7 +573,7 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 def saveOnDrive(epoch , model , pathOriginal):
     if not os.path.isdir(pathOriginal):
         print(f"Path Original is wrong : {pathOriginal}")
-    drive = "/content/myDrive/"
+    drive = "/content/drive/myDrive/"
     if os.path.isdir(drive):
         if not os.path.isdir(drive+f"AML/{model}/"):
             os.mkdir(drive+f"AML/{model}/")
@@ -592,8 +596,10 @@ def main(args):
     model_file = importlib.import_module(args.model)
     if "BiSeNet" in args.model:
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-    if "erfnet" in args.model:
+    if "erfnet" in args.model and args.backbone:
         model = model_file.Net(NUM_CLASSES,encoder=None, batch_size = args.batch_size,backbone = args.backbone)
+    if "erfnet" in args.model and not args.backbone:
+        model = model_file.Net(NUM_CLASSES,encoder=None)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
     if args.cuda:
@@ -672,7 +678,7 @@ def main(args):
         if args.model.casefold().replace(" ", "") == "BiSeNet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if args.model.casefold().replace(" ", "") == "erfnet" :
-            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, batch_size = args.batch_size,backbone = args.backbone)  # Add decoder to encoder
+            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -710,7 +716,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
     parser.add_argument('--backbone', type=str, default=None)
     parser.add_argument("--freezingBackbone",action='store_true')
-    parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=10)
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=1)
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
