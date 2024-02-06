@@ -348,10 +348,6 @@ def train(args, model, enc=False):
         # (images, labels) --> tupla di dim batch_size. Ovvero al suo interno ha batch_size coppie di immagine e relativo ground truth
         for step, (images, labels) in enumerate(loader):
 
-            if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
-                modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
-                saveOnDrive(epoch=epoch, model=modelFilenameDrive,pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/")
-
             start_time = time.time()
             # print (labels.size())
             # print (np.unique(labels.numpy()))
@@ -552,7 +548,7 @@ def train(args, model, enc=False):
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
-            modelFilenameDrive = args.model + "FreezingBackbone" if args.freezingBackbone else ""
+            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "")
             saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
         # Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
@@ -573,10 +569,12 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 def saveOnDrive(epoch , model , pathOriginal):
     if not os.path.isdir(pathOriginal):
         print(f"Path Original is wrong : {pathOriginal}")
-    drive = "/content/drive/myDrive/"
+    drive = "/content/drive/MyDrive/"
     if os.path.isdir(drive):
-        if not os.path.isdir(drive+f"AML/{model}/"):
-            os.mkdir(drive+f"AML/{model}/")
+        if not os.path.isdir(drive+f"AML/"):
+            os.mkdir(drive+f"AML/")
+        if os.path.exists(drive + f"AML/{model}/"):
+            shutil.rmtree(drive + f"AML/{model}/")
         shutil.copytree(pathOriginal, drive+f"AML/{model}/")
         print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
     else:
