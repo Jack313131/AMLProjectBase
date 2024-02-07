@@ -287,7 +287,10 @@ def train(args, model, enc=False):
             filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
         checkpoint = torch.load(filenameCheckpoint)
         start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
+        if args.pruning >0 and 'model' in checkpoint:
+            model = checkpoint['model']
+        elif "state_dict" in checkpoint and not 'model' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         if 'scheduler' in checkpoint:
@@ -298,6 +301,36 @@ def train(args, model, enc=False):
 
     if not args.resume and args.backbone:
         model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
+    if not args.resume and args.pruning > 0:
+        print("Loading weigths from erfnet_pretrained.pth ... ")
+
+        def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
+            # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
+            own_state = model.state_dict()
+            # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
+            for name, param in state_dict.items():
+                if name not in own_state:
+                    # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
+                    # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
+                    if name.startswith("module."):
+                        print(name)
+                        print(own_state[name.split("module.")[-1]])
+                        own_state[name.split("module.")[-1]].copy_(param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+                    else:
+                        print(name, " not loaded")
+                        continue
+                else:
+                    # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
+                    # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
+                    # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
+                    own_state[name].copy_(param)
+            return model  # l'aggiornamento diretto dei pesi viene fatto copiando i nuovi valori dei pesi nei opportuni layer del own_state il quale tiene un puntatore dei vari layer (cosi la modifica si propaga subito anche al modello di partenza)
+
+        # torch.load è una funzione in PyTorch che carica un oggetto salvato da un file. Questo oggetto può essere qualsiasi cosa che sia stata salvata precedentemente con torch.save, come un modello, un dizionario di stato del modello, un tensore, ecc.
+        # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
+        # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
+        model = load_my_state_dict(model, torch.load("../trained_models/erfnet_pretrained.pth", map_location=lambda storage, loc: storage))
+        print("Model and weights LOADED successfully")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -316,12 +349,13 @@ def train(args, model, enc=False):
     else:
       print("Not freezing the backbone ... ")
 
-    if args.pruning > 0:
+    if args.pruning > 0 and not args.resume:
+        pruning_setting_path = savedir + "/pruning_setting.txt"
         if "encoder" in args.moduleErfnetPruning:
             if args.typePruning.casefold().replace(" ", "") == "unstructured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... ")
-                print("For more info of the prunning applied see the file : pruning setting.txt")
-                with open("pruning setting.txt", 'w') as file:
+                print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
+                with open(pruning_setting_path, 'w') as file:
                     file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.encoder.named_modules():
@@ -330,14 +364,14 @@ def train(args, model, enc=False):
                             if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
                 else:
                     for name,module in model.encoder.named_modules():
@@ -346,17 +380,18 @@ def train(args, model, enc=False):
                             if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
             elif args.typePruning.casefold().replace(" ", "") == "structured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning})  with value : {args.pruning} ... ")
+                print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
@@ -364,14 +399,14 @@ def train(args, model, enc=False):
                             if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    with open("pruning setting.txt", 'a') as file:
+                                    with open(pruning_setting_path, 'a') as file:
                                         file.write( f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
                 else:
                     # Il modello non è DataParallel, procedi normalmente
@@ -539,9 +574,9 @@ def train(args, model, enc=False):
                 epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
-                if step == 0:
-                    flops, params = profile(model, inputs=(inputs,))
-                    print(f"FLOPS: {flops}, Parametri: {params}")
+                #if step == 0:
+                    #flops, params = profile(model, inputs=(inputs,))
+                    #print(f"FLOPS: {flops}, Parametri: {params}")
 
                 # Add batch to calculate TP, FP and FN for iou estimation
                 if (doIouVal):
@@ -594,6 +629,7 @@ def train(args, model, enc=False):
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
+            'model' : model,
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
@@ -675,6 +711,7 @@ def saveOnDrive(epoch , model , pathOriginal):
         shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
         shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
         shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
+        shutil.copy2(pathOriginal + "/pruning_setting.txt", drive + f"AML/{model}/pruning_setting.txt")
         if os.path.isfile(pathOriginal + "/model_best.pth"):
             shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
         print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
@@ -771,7 +808,7 @@ def main(args):
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
         if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
-            pretrainedEnc = next(model.children())
+            pretrainedEnc = next(model.children()).encoder
         if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
             model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size,backbone=args.backbone)
         if args.model.casefold().replace(" ", "") == "BiSeNet":
