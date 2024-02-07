@@ -73,9 +73,9 @@ class MyCoTransform(object):
         return input, target
     
 def main(args):
-    enc = args.enc
-    drivedir = f'/content/drive/MyDrive/{args.drivedir}'
-    save_file = drivedir + 'PTQ/save'
+    enc = False
+    drivedir = f'/content/drive/MyDrive/'
+    save_file = drivedir + '[PTQ]'
     if not os.path.exists(drivedir):
         assert("Drivedir does not exist")
 
@@ -176,12 +176,13 @@ if __name__ == "__main__":
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)
-    parser.add_argument('--drivedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
     parser.add_argument('--loadDir', default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
+    parser.add_argument('--loadModel', default="erfnet.py")
+    parser.add_argument('--cpu', action='store_true')
     main(parser.parse_args())
     
     
