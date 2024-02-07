@@ -5,23 +5,27 @@
 
 import os
 import random
+import shutil
 import time
 import numpy as np
 import torch
 import math
-
+import gc
+import torch.nn.utils.prune as prune
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
-
+import re
 from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
-
+from thop import profile
 from dataset import VOC12, cityscapes
 from transform import Relabel, ToLabel, Colorize
 from visualize import Dashboard
+
+from erfnet import non_bottleneck_1d,DownsamplerBlock
 
 import importlib
 from iouEval import iouEval, getColorEntry
@@ -37,10 +41,11 @@ image_transform = ToPILImage()
 
 # Augmentations - different function implemented to perform random augments on both image and target
 class MyCoTransform(object):
-    def __init__(self, enc, augment=True, height=512):
+    def __init__(self, enc, augment=True, height=512, backbone=None):
         self.enc = enc  # A flag (True/False) to enable additional processing on the target image.
         self.augment = augment  # A flag to enable or disable augmentation.
         self.height = height  # The desired height to resize images.
+        self.backbone = backbone
         pass
 
     def __call__(self, input, target):  # method is executed when an instance of the class MyCoTransform is invoked
@@ -51,16 +56,19 @@ class MyCoTransform(object):
         # Resize strict the images to the target dimension self.height (define as parameter) and applies a transformation called (interpolazione)
         # L'interpolazione è una tecnica utilizzata per il ridimensionamento delle immagini e per altre trasformazioni geometriche
         # per calcolare i valori dei nuovi pixel basandosi sui pixel di partenza
+        # if self.backbone.casefold().replace(" ", "") == "barlowtwins":
+        # input = Resize((224, 224))(input)
+        # else:
         input = Resize(self.height, Image.BILINEAR)(
             input)  # L'interpolazione bilineare (BILINEAR) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione bilineare considera i 4 pixel più vicini nella posizione corrispondente dell'immagine originale. Il valore del nuovo pixel è calcolato come una media ponderata dei valori di questi quattro pixel. Le ponderazioni sono basate sulla distanza relativa del punto calcolato rispetto a ciascuno di questi quattro pixel. In termini semplici, più un pixel è vicino al punto calcolato, maggiore sarà il suo contributo al valore finale.
+
         target = Resize(self.height, Image.NEAREST)(
             target)  # L'interpolazione nearest neighbor (Nearest) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione nearest neighbor semplicemente seleziona il valore del pixel più vicino nell'immagine originale, senza considerare altri pixel vicini. In altre parole, il valore del nuovo pixel è uguale a quello del pixel più vicino nella posizione corrispondente dell'immagine originale.
 
         if (self.augment):
             # Random hflip
             hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-            if (
-                    hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+            if (hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
                 input = input.transpose(Image.FLIP_LEFT_RIGHT)
                 target = target.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -87,6 +95,7 @@ class MyCoTransform(object):
         input = ToTensor()(input)
         normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         input = normalize(input)
+
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(
                 target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
@@ -136,6 +145,10 @@ class CrossEntropyLoss2d(torch.nn.Module):
 
 def train(args, model, enc=False):
     best_acc = 0
+
+    #torch.distributed.init_process_group(
+    #    backend='nccl', init_method='tcp://localhost:58472',
+    #    world_size=torch.cuda.device_count(), rank=0)
 
     # TODO: calculate weights by processing dataset histogram (now its being set by hand from the torch values)
     # create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
@@ -200,8 +213,8 @@ def train(args, model, enc=False):
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
     # classi per gestire augmentation per il dataset di training e quello di validation
-    co_transform = MyCoTransform(enc, augment=True, height=args.height)  # 1024)
-    co_transform_val = MyCoTransform(enc, augment=False, height=args.height)  # 1024)
+    co_transform = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
+    co_transform_val = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
 
@@ -240,9 +253,27 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    #optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 1
-    optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=0)  ## scheduler 2
+    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
+    #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
+
+    # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
+    # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
+    # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
+
+    # lambda1 --> Questa è una funzione lambda in Python che prende come input l'epoca corrente (epoch) e calcola un fattore di scala per il learning rate
+    # La formula pow(...) riduce gradualmente il learning rate durante il processo di addestramento. All'inizio dell'addestramento (epoch vicino a 0), questo valore è vicino a 1, quindi il learning rate rimane quasi invariato.
+    # Man mano che l'addestramento procede e epoch aumenta, il valore ritorna da questa funzione diminuisce, riducendo così il learning rate.
+
+    # scheduler --> Questa istruzione crea un oggetto scheduler di tipo LambdaLR (un tipo di scheduler del learning rate che permette di regolare il learning rate in base a una funzione definita dall'utente)
+    # riceve come parametri :
+    # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
+    # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
+
+    # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
+    # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular', cycle_momentum=False)  # scheduler 3
 
     start_epoch = 1
     if args.resume:
@@ -259,29 +290,99 @@ def train(args, model, enc=False):
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
-        print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
+        print("=> Loaded checkpoint at epoch {}".format(checkpoint['epoch']))
+        del checkpoint
+        gc.collect()
 
-    # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
-    # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
-    # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
-
-    # lambda1 --> Questa è una funzione lambda in Python che prende come input l'epoca corrente (epoch) e calcola un fattore di scala per il learning rate
-    # La formula pow(...) riduce gradualmente il learning rate durante il processo di addestramento. All'inizio dell'addestramento (epoch vicino a 0), questo valore è vicino a 1, quindi il learning rate rimane quasi invariato.
-    # Man mano che l'addestramento procede e epoch aumenta, il valore ritorna da questa funzione diminuisce, riducendo così il learning rate.
-
-    # scheduler --> Questa istruzione crea un oggetto scheduler di tipo LambdaLR (un tipo di scheduler del learning rate che permette di regolare il learning rate in base a una funzione definita dall'utente)
-    # riceve come parametri :
-    # optimizer --> è l'ottimizzatore per il quale stai regolando il learning rate (Adam).
-    # lr_lambda -->  è un parametro che accetta una funzione o una lista di funzioni. Queste funzioni sono usate per regolare il learning rate
-
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
-    lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
-    #scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
+    if not args.resume and args.backbone:
+        model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
+
+    if args.freezingBackbone:
+      print("Freezing the backbone ... ")
+      # Congela i pesi dell'encoder
+      if isinstance(model, torch.nn.DataParallel):
+        for param in model.module.encoder.parameters():
+          param.requires_grad = False
+      else:
+        for param in model.encoder.parameters():
+          param.requires_grad = False
+    else:
+      print("Not freezing the backbone ... ")
+
+    if args.pruning > 0:
+        if "encoder" in args.moduleErfnetPruning:
+            if args.typePruning.casefold().replace(" ", "") == "unstructured":
+                print(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... ")
+                print("For more info of the prunning applied see the file : pruning setting.txt")
+                with open("pruning setting.txt", 'w') as file:
+                    file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
+                if isinstance(model, torch.nn.DataParallel):
+                    for name, module in model.module.encoder.named_modules():
+                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                else:
+                    for name,module in model.encoder.named_modules():
+                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
+            elif args.typePruning.casefold().replace(" ", "") == "structured":
+                print(f"Applying pruning encoder (type pruning : {args.typePruning})  with value : {args.pruning} ... ")
+                if isinstance(model, torch.nn.DataParallel):
+                    for name, module in model.module.named_modules():
+                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    with open("pruning setting.txt", 'a') as file:
+                                        file.write( f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                else:
+                    # Il modello non è DataParallel, procedi normalmente
+                    for name, module in model.named_modules():
+                        print(f"Name: {name}, Module: {module}")
+            else:
+                raise ValueError("No type of pruning specified between {unstructured-structured}")
+        elif "decoder" in args.moduleErfnetPruning:
+            print()
+        else:
+            raise ValueError("No module for pruning specified between {encoder,decoder}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -332,9 +433,6 @@ def train(args, model, enc=False):
             images.requires_grad_(True)
             inputs = images
 
-            # inputs = inputs.to(torch.float64)
-            # target_tensor = target_tensor.to(torch.float64)
-
             # labels.requires_grad_(True)
             targets = labels
 
@@ -350,9 +448,6 @@ def train(args, model, enc=False):
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
             optimizer.zero_grad()
 
-            # print(outputs.size())
-            # print(targets.size())
-            # targets = targets.float()
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
@@ -360,53 +455,10 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            #torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
             #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
-            #             print(f"NaN or Inf found in gradients of {name}")
-            #
-            # for name, param in model.named_parameters():
-            #     if torch.isnan(param.data).any():
-            #         print(f"NaN found in weights of {name}")
-            #     if torch.isinf(param.data).any():
-            #         print(f"Inf found in weights of {name}")
-
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # print(f"{name} - mean: {param.data.mean()}, std: {param.data.std()}")
-
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # if param.grad is not None:
-            # print(f'Gradient stats - {name}: mean={param.grad.data.mean()}, std={param.grad.data.std()}')
-
-            # if epoch == 1 and step == 152:  # Assicurati che sia l'epoca 1 e lo step 151
-            # for name, param in model.named_parameters():
-            # if param.grad is not None:
-            # print(f"Gradients for {name}: mean={param.grad.mean()}, std={param.grad.std()}")
-            # else:
-            # print(f"No gradients for {name}")
 
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
-
-            # if step == 151:  # Verifica che sia lo step 152 della prima epoca
-            # print(f"Analisi Ottimizzatore allo Step 152")
-            # for group in optimizer.param_groups:
-            # for p in group['params']:
-            # if p.grad is not None:
-            # state = optimizer.state[p]
-            # if state:  # Controlla se lo stato è popolato
-            # print(f"exp_avg: {state['exp_avg'].mean()}, exp_avg_sq: {state['exp_avg_sq'].mean()}")
-
-            # print(step)
-            # if step == 151:
-            # for name, param in model.named_parameters():
-            # if param.requires_grad:
-            # print(f'Weight stats after optimization - {name}: mean={param.data.mean()}, std={param.data.std()}')
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
@@ -487,6 +539,10 @@ def train(args, model, enc=False):
                 epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
+                if step == 0:
+                    flops, params = profile(model, inputs=(inputs,))
+                    print(f"FLOPS: {flops}, Parametri: {params}")
+
                 # Add batch to calculate TP, FP and FN for iou estimation
                 if (doIouVal):
                     # start_time_iou = time.time()
@@ -541,6 +597,7 @@ def train(args, model, enc=False):
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict()
         }, is_best, filenameCheckpoint, filenameBest)
 
         # SAVE MODEL AFTER EPOCH
@@ -568,6 +625,33 @@ def train(args, model, enc=False):
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
+        if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
+            if args.pruning > 0:
+                namePruning = f"PruningType_{args.typePruning}_Value_{args.pruning}"
+                if len(args.moduleErfnetPruning) > 0:
+                    namePruning = namePruning + "_Module"
+                    for module in args.moduleErfnetPruning:
+                        namePruning = namePruning + f"_{module}"
+                if len(args.listLayerPruning) > 0:
+                    namePruning = namePruning + "_Layer"
+                    nameInnerStateMod = "("
+                    for value in args.listInnerLayerPruning:
+                        nameInnerStateMod = nameInnerStateMod + f"_{value}"
+                    nameInnerStateMod += ")"
+                    for layer in args.listLayerPruning:
+                        namePruning = namePruning + f"_{layer}{nameInnerStateMod}"
+                    numberLayer = "_AllLayer"
+                    if len(args.listNumLayerPruning) > 0:
+                        numberLayer = "_NumLayerPruning"
+                        for number in args.listNumLayerPruning:
+                            numberLayer = numberLayer + f"_{number}"
+
+                    namePruning = namePruning + numberLayer
+
+            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (namePruning if args.pruning else "")
+            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
+
+
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -578,6 +662,24 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
         print("Saving model as best")
         torch.save(state, filenameBest)
 
+def saveOnDrive(epoch , model , pathOriginal):
+    if not os.path.isdir(pathOriginal):
+        print(f"Path Original is wrong : {pathOriginal}")
+    drive = "/content/drive/MyDrive/"
+    if os.path.isdir(drive):
+        if not os.path.isdir(drive+f"AML/"):
+            os.mkdir(drive+f"AML/")
+        if not os.path.exists(drive + f"AML/{model}/"):
+            os.mkdir(drive + f"AML/{model}/")
+        shutil.copy2(pathOriginal+"/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
+        shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
+        shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
+        shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
+        if os.path.isfile(pathOriginal + "/model_best.pth"):
+            shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
+        print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
+    else:
+        print("Drive is not linked ...")
 
 def main(args):
     savedir = f'../save/{args.savedir}'
@@ -593,7 +695,9 @@ def main(args):
     model_file = importlib.import_module(args.model)
     if "BiSeNet" in args.model:
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-    if "erfnet" in args.model:
+    if "erfnet" in args.model and args.backbone:
+        model = model_file.Net(NUM_CLASSES,encoder=None, batch_size = args.batch_size,backbone = args.backbone)
+    if "erfnet" in args.model and not args.backbone:
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
@@ -658,7 +762,7 @@ def main(args):
     # We must reinit decoder weights or reload network passing only encoder in order to train decoder
     print("========== DECODER TRAINING ===========")
     if (not args.state):
-        if args.pretrainedEncoder:
+        if args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
             print("Loading encoder pretrained in imagenet")
             from erfnet_imagenet import ERFNet as ERFNet_imagenet
             pretrainedEnc = torch.nn.DataParallel(ERFNet_imagenet(1000))
@@ -666,11 +770,13 @@ def main(args):
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        elif "erfnet" in args.model:
-            pretrainedEnc = next(model.children()).encoder
-        if "BiSeNet" in args.model:
+        if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
+            pretrainedEnc = next(model.children())
+        if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
+            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size,backbone=args.backbone)
+        if args.model.casefold().replace(" ", "") == "BiSeNet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-        if "erfnet" in args.model:
+        if args.model.casefold().replace(" ", "") == "erfnet" :
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
@@ -682,7 +788,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true',
-                        default=True)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
+                        default=False)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
 
@@ -695,7 +801,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
-    parser.add_argument('--epochs-save', type=int, default=1)  # You can use this value to save model every X epochs
+    parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
@@ -707,7 +813,15 @@ if __name__ == '__main__':
     parser.add_argument('--iouVal', action='store_true',
                         default=True)  # boolean to compute IoU evaluation also in the validation phase
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
-
+    parser.add_argument('--backbone', type=str, default=None)
+    parser.add_argument("--freezingBackbone",action='store_true')
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=1)
+    parser.add_argument("--pruning", type=float, default=0.2)
+    parser.add_argument("--typePruning", type=str, default="unstructured")
+    parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
+    parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d','DownsamplerBlock'])
+    parser.add_argument("--listNumLayerPruning" ,nargs='+', help='',default=[])
+    parser.add_argument("--moduleErfnetPruning" ,nargs='+', help='Module List',default=[])
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
 
