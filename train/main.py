@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 import torchvision.transforms as transforms
-import simsiam.loader
 
 from dataset import VOC12, cityscapes
 from transform import Relabel, ToLabel, Colorize
@@ -43,16 +42,6 @@ class MyCoTransform(object):
         self.enc = enc  # A flag (True/False) to enable additional processing on the target image.
         self.augment = augment  # A flag to enable or disable augmentation.
         self.height = height  # The desired height to resize images.
-        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225])
-        augmentation = [
-            transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-            ], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
-        ]
-        self.co_transform = augmentation
         pass
 
     def __call__(self, input, target):  # method is executed when an instance of the class MyCoTransform is invoked
@@ -62,72 +51,43 @@ class MyCoTransform(object):
         target = Resize(self.height, Image.NEAREST)(
             target)  # L'interpolazione nearest neighbor (Nearest) Per ogni nuovo pixel nell'immagine ridimensionata, l'interpolazione nearest neighbor semplicemente seleziona il valore del pixel più vicino nell'immagine originale, senza considerare altri pixel vicini. In altre parole, il valore del nuovo pixel è uguale a quello del pixel più vicino nella posizione corrispondente dell'immagine originale.
 
-        # if (self.augment):
-        #     # Random hflip
-        #     hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-        #     if (
-        #             hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
-        #         input = input.transpose(Image.FLIP_LEFT_RIGHT)
-        #         target = target.transpose(Image.FLIP_LEFT_RIGHT)
+        if (self.augment):
+            # Random hflip
+            hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
+            if (
+                    hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+                input = input.transpose(Image.FLIP_LEFT_RIGHT)
+                target = target.transpose(Image.FLIP_LEFT_RIGHT)
 
-        #     # Random translation 0-2 pixels (fill rest with padding
-        #     # Both images are randomly shifted by 0-2 pixels in x and y directions
-        #     # Ad esempio transX = 2, transY = 2 sposta l'immagine verso destra e in basso, mentre una traslazione negativa (ad esempio transX = -2, transY = -2) sposta l'immagine verso sinistra e in alto.
-        #     transX = random.randint(-2,
-        #                             2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
-        #     transY = random.randint(-2,
-        #                             2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
+            # Random translation 0-2 pixels (fill rest with padding
+            # Both images are randomly shifted by 0-2 pixels in x and y directions
+            # Ad esempio transX = 2, transY = 2 sposta l'immagine verso destra e in basso, mentre una traslazione negativa (ad esempio transX = -2, transY = -2) sposta l'immagine verso sinistra e in alto.
+            transX = random.randint(-2,
+                                    2)  # define randomly how much shift the images from 2 pixel to the left to 2 pixel to the right (could be also 0)
+            transY = random.randint(-2,
+                                    2)  # define randomly how much shift the images from 2 pixel to the bottom to 2 pixel to the up (could be also 0)
 
-        #     # riga 66 e 67 servono per traslare l'immagine con i valori definiti da transX e transY e i pixel aggiunti vengono riempiti con logiche diverse a seconda se immagine input o immagine output
-        #     input = ImageOps.expand(input, border=(transX, transY, 0, 0),
-        #                             fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
-        #     target = ImageOps.expand(target, border=(transX, transY, 0, 0),
-        #                              fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
+            # riga 66 e 67 servono per traslare l'immagine con i valori definiti da transX e transY e i pixel aggiunti vengono riempiti con logiche diverse a seconda se immagine input o immagine output
+            input = ImageOps.expand(input, border=(transX, transY, 0, 0),
+                                    fill=0)  # pad the input è stato riempito con 0 in quei pixel (questo significa che i pixel sono stati resi blu)
+            target = ImageOps.expand(target, border=(transX, transY, 0, 0),
+                                     fill=255)  # pad label filling with 255 (questo significa che quei pixel sono stati resi bianchi)
 
-        #     # serve proprio a ritagliare l'immagine traslata per riportarla alle sue dimensioni originali, ma con il contenuto dell'immagine spostato in base ai valori di transX e transY.
-        #     # Questo ritaglio riduce le dimensioni dell'immagine traslata per farle corrispondere alle sue dimensioni originali. Tuttavia, a causa della traslazione precedente,
-        #     # la parte visibile dell'immagine sarà ora differente rispetto all'originale. Ad esempio, se l'immagine era stata spostata verso destra e in basso, il ritaglio rimuoverà parti dell'immagine originale dal lato destro e inferiore.
-        #     input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
-        #     target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
+            # serve proprio a ritagliare l'immagine traslata per riportarla alle sue dimensioni originali, ma con il contenuto dell'immagine spostato in base ai valori di transX e transY.
+            # Questo ritaglio riduce le dimensioni dell'immagine traslata per farle corrispondere alle sue dimensioni originali. Tuttavia, a causa della traslazione precedente,
+            # la parte visibile dell'immagine sarà ora differente rispetto all'originale. Ad esempio, se l'immagine era stata spostata verso destra e in basso, il ritaglio rimuoverà parti dell'immagine originale dal lato destro e inferiore.
+            input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
+            target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
         
-        image1, image2, target =  self.TwoCropsTransform(input, target)
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
         target = ToLabel()(target)
-        image1 = ToTensor()(image1)
-        image1 = self.normalize(image1)
-        image2 = ToTensor()(image2)
-        image2 = self.normalize(image2)
         # l'operazione di Relabel consiste per l'output target ovvero quello che già ha una classificazione per ogni pixel, di cambiare tutti i pixel con valore 255 a valore 19
         # questo perchè magari pixel 255 non ha una label associata mentre 19 è la label per classificazione generica (es : background)
         target = Relabel(255, 19)(target)
 
-        return image1, image2, target
+        return input, target
     
-    def TwoCropsTransform(self, input, label):
-        augmentation_all_1 = [
-            transforms.RandomResizedCrop(size = (input.size[1], input.size[0]), scale=(0.2, 1.))
-        ]
-        augmentation_all_2 = [
-            transforms.RandomHorizontalFlip()
-        ]
-        transform_1 = transforms.Compose(augmentation_all_1)
-        k = transform_1(input)
-        transform_2 = transforms.Compose(self.co_transform)
-        k = transform_2(k)
-        transform_3 = transforms.Compose(augmentation_all_2)
-        k = transform_3(k)
-        transform_1 = transforms.Compose(augmentation_all_1)
-        q = transform_1(input)
-        l = transform_1(label)
-        transform_2 = transforms.Compose(self.co_transform)
-        q = transform_2(q)
-        transform_3 = transforms.Compose(augmentation_all_2)
-        q = transform_3(q)
-        l = transform_3(l)
-        return [q, k, l]
-
-
 
 class CrossEntropyLoss2d(torch.nn.Module):
     # è progettata per lavorare con input bidimensionali (bidimensionali si intende con più di una dimensione). In contesti come la segmentazione delle immagini, ogni pixel dell'immagine viene classificato in una delle categorie.
@@ -246,7 +206,7 @@ def train(args, model, enc=False):
     # print(type(criterion))
 
     #savedir = f'../save/{args.savedir}'
-    drivedir = f'/content/drive/MyDrive/{args.drivedir}'
+    drivedir = f'/content/drive/MyDrive{args.drivedir}'
 
     if (enc):
         # automated_log_path = savedir + "/automated_log_encoder.txt"
@@ -309,8 +269,6 @@ def train(args, model, enc=False):
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
-    if not args.resume and args.model.casefold().replace(" ", "") == "erfnet+simsiam" :
-        model.module.loadInitialWeigth("/content/drive/MyDrive/[SimSiam]/checkpoint_simsiam.pth.tar")
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
     # Ad ogni epoca durante l'addestramento, lo scheduler aggiusterà il learning rate moltiplicandolo per il valore restituito dalla funzione lambda1.
     # Ciò significa che man mano che l'addestramento procede e si avvicina al numero totale di epoche, il learning rate diminuirà seguendo la legge definita nella funzione lambda.
@@ -332,6 +290,7 @@ def train(args, model, enc=False):
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
+
     if args.freezingBackbone:
       print("Freezing the backbone ... ")
       # Congela i pesi dell'encoder
@@ -378,7 +337,7 @@ def train(args, model, enc=False):
         # In questo caso, enumerate(loader) restituisce due valori ad ogni iterazione: un indice (che viene assegnato a step) e i valori (in questo caso, tuple (images, labels)). Dove :
         # step --> In ogni iterazione del ciclo for, step assume il valore dell'indice corrente fornito da enumerate. Inizia da 0 e si incrementa di 1 ad ogni iterazione. Quindi, step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader.
         # (images, labels) --> tupla di dim batch_size. Ovvero al suo interno ha batch_size coppie di immagine e relativo ground truth
-        for step, (images1, images2, labels) in enumerate(loader):
+        for step, (images, labels) in enumerate(loader):
 
             start_time = time.time()
             # print (images.size())
@@ -386,17 +345,14 @@ def train(args, model, enc=False):
             # print("labels: ", np.unique(labels[0].numpy()))
             # labels = torch.ones(4, 1, 512, 1024).long()
             if args.cuda:
-                images1 = images1.cuda()
-                images2 = images2.cuda()
+                images = images.cuda()
                 labels = labels.cuda()
 
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
             # calcolare i gradienti durante la backpropagation.Da PyTorch 0.4 in poi, la funzionalità di Variable è stata integrata direttamente nei tensori, ora, ogni tensore ha un attributo requires_grad che, se impostato su True, abilita il calcolo del gradiente per quel tensore in modo simile a come funzionavano le Variable.
-            images1.requires_grad_(True)
-            images2.requires_grad_(True)
-            inputs1 = images1
-            inputs2 = images2
+            images.requires_grad_(True)
+            inputs = images
 
             # inputs = inputs.to(torch.float64)
             # target_tensor = target_tensor.to(torch.float64)
@@ -404,15 +360,10 @@ def train(args, model, enc=False):
             # labels.requires_grad_(True)
             targets = labels
 
-            if "BiSeNet" in args.model:
-                outputs = model(inputs1)
-                outputs = outputs[0]
-                outputs = outputs.float()
             if "erfnet" in args.model:
-                outputs = model(inputs1, inputs2, only_encode=enc)
+                outputs = model(inputs, only_encode=enc)
                 #print("Outputs: ", outputs.shape)
-            if "ENet" in args.model:
-                outputs = model(inputs1)
+
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
@@ -477,10 +428,10 @@ def train(args, model, enc=False):
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
-            scheduler.step(loss.item())  ## scheduler 2
+            scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
-            epoch_loss.append(loss.item())
+            epoch_loss.append()
             time_train.append(time.time() - start_time)
 
             if (doIouTrain):
@@ -491,7 +442,7 @@ def train(args, model, enc=False):
             # print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 start_time_plot = time.time()
-                image = inputs1[0].cpu().data
+                image = inputs[0].cpu().data
                 # image[0] = image[0] * .229 + .485
                 # image[1] = image[1] * .224 + .456
                 # image[2] = image[2] * .225 + .406
@@ -528,7 +479,7 @@ def train(args, model, enc=False):
         if (doIouVal):
             iouEvalVal = iouEval(NUM_CLASSES)
 
-        for step, (images1, images2, labels) in enumerate(loader_val):
+        for step, (images, labels) in enumerate(loader_val):
             # Con l'integrazione delle funzionalità di Variable direttamente nei tensori in PyTorch 0.4 e versioni successive, l'uso di volatile è stato deprecato.
             # Al suo posto, PyTorch ha introdotto un modo più intuitivo e meno soggetto a errori per gestire il calcolo dei gradienti: il contesto with torch.no_grad():
             # Quando si eseguono operazioni all'interno di un blocco with torch.no_grad():, PyTorch non traccia, calcola o memorizza gradienti. Questo riduce l'uso della memoria e accelera i calcoli quando i gradienti non sono necessari, come appunto durante l'inferenza o il test.
@@ -539,21 +490,19 @@ def train(args, model, enc=False):
                     images2 = images2.cuda()
                     labels = labels.cuda()
 
-                images1.requires_grad_(True)
-                images2.requires_grad_(True)
-                inputs1 = images1
-                inputs2 = images2
+                images.requires_grad_(True)
+                inputs = images
 
                 targets = labels
 
                 if "BiSeNet" in args.model:
-                    outputs = model(inputs1)
+                    outputs = model(inputs)
                     outputs = outputs[0]
                     outputs = outputs.float()
                 if "erfnet" in args.model:
-                    outputs = model(inputs1, inputs2, only_encode=enc)
+                    outputs = model(inputs, only_encode=enc)
                 if "ENet" in args.model:
-                    outputs = model(inputs1)
+                    outputs = model(inputs)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
@@ -567,7 +516,7 @@ def train(args, model, enc=False):
 
                 if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                     start_time_plot = time.time()
-                    image = inputs1[0].cpu().data
+                    image = inputs[0].cpu().data
                     board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                     if isinstance(outputs, list):  # merge gpu tensors
                         board.image(color_transform(outputs[0][0].cpu().max(0)[1].data.unsqueeze(0)),
@@ -631,7 +580,8 @@ def train(args, model, enc=False):
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict()
+            'scheduler': scheduler.state_dict(),
+            #quantization: 
         }, is_best, filenameCheckpoint_drive, filenameBest_drive)
 
         # SAVE MODEL AFTER EPOCH
@@ -706,8 +656,6 @@ def main(args):
         model = model_file.Net(NUM_CLASSES)
     if "ENet" in args.model:
         model = model_file.ENet(NUM_CLASSES)
-    if "SimSiam" in args.model:
-        model = model_file.Net(NUM_CLASSES)
     #copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
