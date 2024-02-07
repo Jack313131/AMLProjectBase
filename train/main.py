@@ -245,7 +245,7 @@ def train(args, model, enc=False):
     criterion = CrossEntropyLoss2d(weight)
     # print(type(criterion))
 
-    savedir = f'../save/{args.savedir}'
+    #savedir = f'../save/{args.savedir}'
     drivedir = f'/content/drive/MyDrive/{args.drivedir}'
 
     if (enc):
@@ -684,7 +684,7 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 
 
 def main(args):
-    savedir = f'../save/{args.savedir}'
+    #savedir = f'../save/{args.savedir}'
     drivedir = f'/content/drive/MyDrive/{args.drivedir}'
 
     # if not os.path.exists(savedir):
