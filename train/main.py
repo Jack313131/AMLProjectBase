@@ -13,6 +13,9 @@ import math
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
 
+from torch import nn
+import copy
+
 from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
@@ -28,6 +31,7 @@ import importlib
 from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
+
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20  # pascal=22, cityscapes=20
@@ -79,6 +83,9 @@ class MyCoTransform(object):
             input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
             target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
         
+        input = ToTensor()(input)
+        normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        input = normalize(input)
         if (self.enc):
             target = Resize(int(self.height / 8), Image.NEAREST)(target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
         target = ToLabel()(target)
@@ -137,13 +144,6 @@ def train(args, model, enc=False):
 
     # Ogni peso nel vettore è staticamente associato a una specifica classe per tutta la durata dell'addestramento del modello.
     # Quando inizializzi il vettore di pesi, ciascun peso è assegnato a una specifica classe. Ad esempio, in un vettore di pesi di dimensione 20, il primo peso potrebbe essere associato alla prima classe, il secondo peso alla seconda classe, e così via. Questa associazione non cambia durante l'addestramento
-
-    # In molti set di dati di classificazione, alcune classi possono essere molto più frequenti di altre. Ad esempio, in un set di dati di segmentazione stradale, la classe "strada" potrebbe essere molto più comune della classe "pedone".
-    # Senza un adeguato bilanciamento, un modello di machine learning potrebbe diventare parziale verso le classi più frequenti, imparando principalmente a riconoscerle e ignorando o non performando bene sulle classi meno frequenti.
-    # Assegnando pesi diversi alle diverse classi nella funzione di perdita, si può bilanciare l'importanza data ad ogni classe durante l'addestramento del modello. In generale, si assegna un peso maggiore alle classi meno frequenti e un peso minore alle classi più frequenti.
-    # Questo aiuta a garantire che il modello non ignori le classi meno frequenti. Quando si calcola la perdita per una previsione, il valore della perdita viene moltiplicato per il peso associato alla classe vera di quel dato campione. Quindi, errori in classi con peso maggiore contribuiscono di più alla perdita totale,
-    # il che spinge il modello a prestare maggiore attenzione a queste classi durante l'addestramento.
-    # Se la classe "pedone" è rara nel set di dati ma è molto importante riconoscerla correttamente (ad esempio, per motivi di sicurezza nella guida autonoma), assegnandole un peso maggiore nella funzione di perdita, si può incentivare il modello a migliorare la sua capacità di rilevare pedoni, nonostante la loro relativa rarità nel set di dati.
     weight = torch.ones(NUM_CLASSES)
     if (enc):
         weight[0] = 2.3653597831726
@@ -185,7 +185,6 @@ def train(args, model, enc=False):
         weight[16] = 10.289801597595
         weight[17] = 10.405355453491
         weight[18] = 10.138095855713
-
     weight[19] = 0
 
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
@@ -209,57 +208,35 @@ def train(args, model, enc=False):
     drivedir = f'/content/drive/MyDrive{args.drivedir}'
 
     if (enc):
-        # automated_log_path = savedir + "/automated_log_encoder.txt"
-        # modeltxtpath = savedir + "/model_encoder.txt"
         automated_log_path_drive = drivedir + "/automated_log_encoder.txt"
         modeltxtpath_drive = drivedir + "/model_encoder.txt"
     else:
-        # automated_log_path = savedir + "/automated_log.txt"
-        # modeltxtpath = savedir + "/model.txt"
         automated_log_path_drive = drivedir + "/automated_log.txt"
         modeltxtpath_drive = drivedir + "/model.txt"
 
-    # if (not os.path.exists(automated_log_path)):  # dont add first line if it exists
-    #     with open(automated_log_path, "a") as myfile:
-    #         myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
     if (not os.path.exists(automated_log_path_drive)):  # dont add first line if it exists
         with open(automated_log_path_drive, "a") as myfile:
             myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
-
-    # with open(modeltxtpath, "w") as myfile:
-    #     myfile.write(str(model))
+    
     with open(modeltxtpath_drive, "w") as myfile:
         myfile.write(str(model))
 
     # TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
-    # Adam aggiorna i pesi della rete neurale in direzione opposta rispetto al gradiente della funzione di perdita. Questo aiuta a minimizzare la funzione di perdita. Ora ci concentriamo sui vari parametri passati :
-    # 1.  model.parameters() --> Questo argomento passa tutti i parametri addestrabili del tuo modello all'ottimizzatore. In pratica, questi sono i pesi e i bias della rete neurale che Adam aggiornerà durante il processo di addestramento.
-    # 2.  learning rate (lr) --> Il learning rate controlla quanto velocemente il modello apprende; un valore troppo alto può far sì che l'apprendimento sia instabile, mentre un valore troppo basso può portare a un apprendimento molto lento.
-    # 3.  betas --> Questi sono i valori per i parametri beta1 e beta2 di Adam. Gestiscono rispettivamente il decadimento esponenziale dei tassi medi del gradiente passato e del quadrato del gradiente passato. beta1 e beta2 in Adam sono fondamentali per bilanciare la quantità di informazioni del passato (gradienti passati e la variazione di questi gradienti) che vengono incluse negli aggiornamenti attuali dei parametri della rete.
-    # 3a. beta1 --> controlla la media mobile esponenziale del primo momento, cioè la media dei gradienti. In termini semplici, tiene traccia della direzione e della velocità con cui i parametri della rete neurale stanno cambiando. Questa media aiuta a smorzare le oscillazioni dei gradienti e a indirizzare l'ottimizzazione in modo più stabile e consistente verso il minimo della funzione di perdita. Il valore 0.9 per beta1 significa che il momento attuale tiene conto principalmente del gradiente attuale, ma include anche una frazione significativa della storia dei gradienti precedenti.
-    # 3b. beta2 --> controlla la media mobile esponenziale del secondo momento, cioè la media dei quadrati dei gradienti. Questa media aiuta a regolare la grandezza degli aggiornamenti dei pesi in base alla varianza dei gradienti. In pratica, permette all'ottimizzatore di adattarsi alla scala di ciascun parametro, rendendo l'addestramento più efficiente e stabile, specialmente in presenza di gradienti rumorosi o di diverse scale tra i parametri. Il valore 0.999 per beta2 implica che l'aggiornamento dei pesi tiene in considerazione una finestra più lunga di gradienti passati, fornendo una stima più stabile e meno rumorosa della varianza dei gradienti.
-    # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
-    # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
-
     optimizer = Adam(model.parameters(), 5e-5, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
     #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=0)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
-
 
     start_epoch = 1
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=5e-5, max_lr=1e-3, step_size_up=20, mode='triangular', cycle_momentum=False) # scheduler 3
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
         if enc:
-            #filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
         else:
-            #filenameCheckpoint = savedir + '/checkpoint.pth.tar'
             filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
 
-        assert os.path.exists(
-            filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
+        assert os.path.exists(filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
 
         checkpoint = torch.load(filenameCheckpoint_drive)
         if 'scheduler' in checkpoint:
@@ -650,12 +627,8 @@ def main(args):
     # Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    if "BiSeNet" in args.model:
-        model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model:
         model = model_file.Net(NUM_CLASSES)
-    if "ENet" in args.model:
-        model = model_file.ENet(NUM_CLASSES)
     #copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
@@ -728,17 +701,13 @@ def main(args):
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        elif "erfnet" in args.model:
+        else:
             pretrainedEnc = next(model.children()).encoder
-        if "BiSeNet" in args.model:
-            model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-        if "erfnet" in args.model:
-            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
-        if "ENet" in args.model:
-          model = model_file.ENet(NUM_CLASSES)
+        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
+
     model = train(args, model, False)  # Train decoder
     print("========== TRAINING FINISHED ===========")
 
@@ -767,7 +736,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize',
                         action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
-
+    # parser.add_argument('--PTQ', action='store_true')
     parser.add_argument('--iouTrain', action='store_true',  # boolean to compute IoU evaluation  in the training phase
                         default=False)  # recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true',
