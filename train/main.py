@@ -43,7 +43,7 @@ class MyCoTransform(object):
         self.enc = enc  # A flag (True/False) to enable additional processing on the target image.
         self.augment = augment  # A flag to enable or disable augmentation.
         self.height = height  # The desired height to resize images.
-        self.normalize = normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225])
         augmentation = [
             transforms.RandomApply([
@@ -92,8 +92,7 @@ class MyCoTransform(object):
         
         image1, image2, target =  self.TwoCropsTransform(input, target)
         if (self.enc):
-            target = Resize(int(self.height / 8), Image.NEAREST)(
-                target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
+            target = Resize(int(self.height / 8), Image.NEAREST)(target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
         target = ToLabel()(target)
         image1 = ToTensor()(image1)
         image1 = self.normalize(image1)
@@ -106,19 +105,26 @@ class MyCoTransform(object):
         return image1, image2, target
     
     def TwoCropsTransform(self, input, label):
-        augmentation_all = [
-            transforms.RandomResizedCrop(size = (input.size[1], input.size[0]), scale=(0.2, 1.)),
+        augmentation_all_1 = [
+            transforms.RandomResizedCrop(size = (input.size[1], input.size[0]), scale=(0.2, 1.))
+        ]
+        augmentation_all_2 = [
             transforms.RandomHorizontalFlip()
         ]
-        transform = transforms.Compose(self.co_transform)
-        k = transform(input)
-        transform = transforms.Compose(augmentation_all)
-        k = transform(k)
-        transform = transforms.Compose(self.co_transform)
-        q = transform(input)
-        transform = transforms.Compose(augmentation_all)
-        q = transform(q)
-        l = transform(label)
+        transform_1 = transforms.Compose(augmentation_all_1)
+        k = transform_1(input)
+        transform_2 = transforms.Compose(self.co_transform)
+        k = transform_2(k)
+        transform_3 = transforms.Compose(augmentation_all_2)
+        k = transform_3(k)
+        transform_1 = transforms.Compose(augmentation_all_1)
+        q = transform_1(input)
+        l = transform_1(label)
+        transform_2 = transforms.Compose(self.co_transform)
+        q = transform_2(q)
+        transform_3 = transforms.Compose(augmentation_all_2)
+        q = transform_3(q)
+        l = transform_3(l)
         return [q, k, l]
 
 
@@ -240,7 +246,7 @@ def train(args, model, enc=False):
     # print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
-    drivedir = '/content/drive/MyDrive/[SimSiam]'
+    drivedir = f'/content/drive/MyDrive/{args.drivedir}'
 
     if (enc):
         # automated_log_path = savedir + "/automated_log_encoder.txt"
@@ -679,7 +685,7 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 
 def main(args):
     savedir = f'../save/{args.savedir}'
-    drivedir = '/content/drive/MyDrive/[SimSiam]'
+    drivedir = f'/content/drive/MyDrive/{args.drivedir}'
 
     # if not os.path.exists(savedir):
     #     os.makedirs(savedir)
@@ -797,7 +803,6 @@ if __name__ == '__main__':
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)
-    parser.add_argument('--backbone', default=False)
     parser.add_argument("--freezingBackbone", action='store_true')
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
@@ -808,7 +813,8 @@ if __name__ == '__main__':
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
-    parser.add_argument('--savedir', required=True)
+    #parser.add_argument('--savedir', required=True)
+    parser.add_argument('--drivedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize',
