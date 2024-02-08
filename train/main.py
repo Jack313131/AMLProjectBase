@@ -296,6 +296,13 @@ def train(args, model, enc=False):
         if 'scheduler' in checkpoint:
             scheduler.load_state_dict(checkpoint['scheduler'])
         print("=> Loaded checkpoint at epoch {}".format(checkpoint['epoch']))
+        if args.pruning > 0:
+            print(f"Pruning Applied :")
+            for name, module in model.module.named_modules():
+                if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):  # o il tipo di layer che hai pruned
+                    total = module.weight.nelement()
+                    zeros = torch.sum(module.weight == 0)
+                    print(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {zeros.float() / total:.2f}% di zero weights")
         del checkpoint
         gc.collect()
 
