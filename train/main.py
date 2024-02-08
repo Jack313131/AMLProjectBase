@@ -463,8 +463,7 @@ def train(args, model, enc=False):
             with torch.no_grad():
                 start_time = time.time()
                 if args.cuda:
-                    images1 = images1.cuda()
-                    images2 = images2.cuda()
+                    images = images.cuda()
                     labels = labels.cuda()
 
                 images.requires_grad_(True)

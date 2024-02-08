@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.quantization import quantize_fx
 from torchvision import datasets, transforms
 from dataset import VOC12, cityscapes
 from torch.utils.data import DataLoader
@@ -17,21 +18,28 @@ import os
 import os.path as osp
 import importlib
 from shutil import copyfile
+import copy
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20  # pascal=22, cityscapes=20
 
-def direct_quantize(model, test_loader):
+def direct_quantize(args, model, test_loader):
     for i, (data, target) in enumerate(test_loader, 1):
+        if args.cuda:
+            data = data.cuda()
+            target = target.cuda()
         output = model.quantize_forward(data)
         if i % 500 == 0:
             break
     print('direct quantization finish')
 
 
-def full_inference(model, test_loader):
+def full_inference(args, model, test_loader):
     correct = 0
     for i, (data, target) in enumerate(test_loader, 1):
+        if args.cuda:
+            data = data.cuda()
+            target = target.cuda()
         output = model(data)
         pred = output.argmax(dim=1, keepdim=True)
         correct += pred.eq(target.view_as(pred)).sum().item()
@@ -82,21 +90,23 @@ def main(args):
     modelpath = args.loadDir + args.loadModel
     weightspath = args.loadDir + args.loadWeights
 
-    co_transform = MyCoTransform(enc, height=args.height)  # 1024)
+    # co_transform = MyCoTransform(enc, height=args.height)  # 1024)
     co_transform_val = MyCoTransform(enc, height=args.height)  # 1024)
-    dataset_train = cityscapes(args.datadir, co_transform, 'train')
+    # dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
 
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     model = model_file.Net(NUM_CLASSES)
+
     if (not args.cpu):
         model = torch.nn.DataParallel(model).cuda()
+
     copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
-    train_loader = torch.utils.data.DataLoader(
-        dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True
-    )
+    # train_loader = torch.utils.data.DataLoader(
+    #     dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True
+    # )
 
     test_loader = torch.utils.data.DataLoader(
         dataset_val, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True
@@ -136,7 +146,7 @@ def main(args):
     #     save_file = "ckpt/mnist_cnn_ptq.pt"
 
     model.eval()
-    full_inference(model, test_loader)
+    full_inference(args, model, test_loader)
 
     num_bits = 8
     model.quantize(num_bits=num_bits)
@@ -149,7 +159,7 @@ def main(args):
     #     print("Successfully load quantized model %s" % load_quant_model_file)
     
 
-    direct_quantize(model, train_loader)
+    direct_quantize(args, model, test_loader)
 
     torch.save(model.state_dict(), save_file)
     model.freeze()
@@ -161,6 +171,23 @@ def main(args):
     # print(model.qconv1.M.device)
 
     quantize_inference(model, test_loader)
+    ## Provato ad utilizzare il metodo quantize_fx
+    # m = copy.deepcopy(model)
+    # m.eval()
+    # qconfig_dict = {"": torch.quantization.get_default_qconfig(backend="fbgemm")}
+
+    # example_input = (torch.rand(6, 3, args.height, args.height), torch.rand(6, 3, args.height, args.height))
+    # model_prepared = quantize_fx.prepare_fx(m, qconfig_dict, example_input)
+    # with torch.inference_mode():
+    #     for data, target in enumerate(test_loader):
+    #         if args.cuda:
+    #             data = data.cuda()
+    #             target = target.cuda()
+    #         model_prepared(data)
+    
+    # model_quantized = quantize_fx.convert_fx(model_prepared)
+    # torch.save(model_quantized.state_dict(), save_file)
+        
 
 
 if __name__ == "__main__":
@@ -184,9 +211,4 @@ if __name__ == "__main__":
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--cpu', action='store_true')
     main(parser.parse_args())
-    
-    
-
-
-
     
