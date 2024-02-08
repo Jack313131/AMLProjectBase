@@ -92,9 +92,9 @@ class cityscapes(Dataset):
             label = load_image(f).convert('P')
 
         if self.co_transform is not None:
-            image1, image2, label = self.co_transform(image, label)
+            image, label = self.co_transform(image, label)
 
-        return image1, image2, label
+        return image, label
 
     def __len__(self):
         return len(self.filenames)
