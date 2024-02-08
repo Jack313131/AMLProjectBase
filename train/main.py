@@ -295,7 +295,7 @@ def train(args, model, enc=False):
         gc.collect()
 
     if not args.resume and args.backbone:
-        model.loadInitialWeigth(f"../save/checkpoint_{args.backbone}.pth")
+        model.module.loadInitialWeigth(f"../save/checkpoint_{args.backbone}.pth")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
