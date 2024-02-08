@@ -505,7 +505,7 @@ def train(args, model, enc=False):
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
             # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
-            scheduler.step(loss.item())  ## scheduler 2
+            scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
             epoch_loss.append(loss.item())
