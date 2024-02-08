@@ -121,8 +121,19 @@ class Decoder(nn.Module):
         self.adapt_layer = nn.Sequential(
             # Layer per trasformare [6, 8192] in [6, 128, 8, 8]
             nn.Unflatten(1, (128, 8, 8)),
-            # Layer di convoluzione per adattare le dimensioni spaziali
-            nn.ConvTranspose2d(128, 128, kernel_size=(8,16), stride=(8,16)),
+            # Layer di convoluzione trasposta per aumentare le dimensioni spaziali
+            # Da [6, 128, 8, 8] a [6, 128, 16, 16]
+            nn.ConvTranspose2d(128, 128, kernel_size=(2, 2), stride=(2, 2)),
+
+            # Da [6, 128, 16, 16] a [6, 128, 32, 32]
+            nn.ConvTranspose2d(128, 128, kernel_size=(2, 2), stride=(2, 2)),
+
+            # Da [6, 128, 32, 32] a [6, 128, 64, 64]
+            nn.ConvTranspose2d(128, 128, kernel_size=(2, 2), stride=(2, 2)),
+
+            # Da [6, 128, 64, 64] a [6, 128, 64, 128]
+            # Qui usiamo un kernel e uno stride asimmetrici per ottenere le dimensioni desiderate
+            nn.ConvTranspose2d(128, 128, kernel_size=(1, 2), stride=(1, 2)),
         )
 
         self.layers.append(UpsamplerBlock(128, 64))
