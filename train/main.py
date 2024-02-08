@@ -302,7 +302,7 @@ def train(args, model, enc=False):
                 if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):  # o il tipo di layer che hai pruned
                     total = module.weight.nelement()
                     zeros = torch.sum(module.weight == 0)
-                    print(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {zeros.float() / total:.2f}% di zero weights")
+                    print(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights")
         del checkpoint
         gc.collect()
 
@@ -431,7 +431,7 @@ def train(args, model, enc=False):
                 total = module.weight.nelement()
                 zeros = torch.sum(module.weight == 0)
                 with open(pruning_setting_path, 'a') as file:
-                    file.write(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {zeros.float() / total:.2f}% di zero weights\n")
+                    file.write(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights\n")
 
 
     for epoch in range(start_epoch, args.num_epochs + 1):
@@ -868,7 +868,7 @@ if __name__ == '__main__':
     parser.add_argument('--backbone', type=str, default=None)
     parser.add_argument("--freezingBackbone",action='store_true')
     parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=1)
-    parser.add_argument("--pruning", type=float, default=0.2)
+    parser.add_argument("--pruning", type=float, default=0.5)
     parser.add_argument("--typePruning", type=str, default="unstructured")
     parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
     parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d','DownsamplerBlock'])
