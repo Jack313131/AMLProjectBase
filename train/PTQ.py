@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.quantization import quantize_fx
+from torch.autograd import Variable
 from torchvision import datasets, transforms
 from dataset import VOC12, cityscapes
 from torch.utils.data import DataLoader
@@ -19,6 +20,7 @@ import os.path as osp
 import importlib
 from shutil import copyfile
 import copy
+from iouEval import iouEval, getColorEntry
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20  # pascal=22, cityscapes=20
@@ -35,16 +37,24 @@ def direct_quantize(args, model, test_loader):
 
 
 def full_inference(args, model, test_loader):
-    correct = 0
+    intersection = 0
+    union = 0
+    iouEvalVal = iouEval(NUM_CLASSES)
     for i, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data = data.cuda()
             target = target.cuda()
-        output = model(data)
-        pred = output.argmax(dim=1, keepdim=True)
-        correct += pred.eq(target.view_as(pred)).sum().item()
-    print('\nTest set: Full Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
-
+        data = Variable(data)
+        with torch.no_grad():
+            output = model(data)
+        # finalOutput = output.max(1)[1].unsqueeze(1)
+        # iouEvalVal.addBatch(finalOutput.data, target)
+        pred = output.argmax(dim=1)
+        intersection += torch.logical_and(pred, target).sum().item()
+        union += torch.logical_or(pred, target).sum().item()
+    miou = intersection / union
+    print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
+    return miou
 
 def quantize_inference(model, test_loader):
     correct = 0
@@ -52,7 +62,7 @@ def quantize_inference(model, test_loader):
         output = model.quantize_inference(data)
         pred = output.argmax(dim=1, keepdim=True)
         correct += pred.eq(target.view_as(pred)).sum().item()
-    print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
+    #print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
 
 class MyCoTransform(object):
     def __init__(self, enc, augment=True, height=512):
@@ -146,12 +156,12 @@ def main(args):
     #     save_file = "ckpt/mnist_cnn_ptq.pt"
 
     model.eval()
+    print("### Full inference ###")
     full_inference(args, model, test_loader)
-    print("### Full inference done ###")
 
     num_bits = 8
+    print("### Model quantize ###")
     model.module.quantize(num_bits=num_bits)
-    print("### Model quantize done ###")
     model.eval()
     print('Quantization bit: %d' % num_bits)
 
@@ -161,10 +171,10 @@ def main(args):
     #     print("Successfully load quantized model %s" % load_quant_model_file)
     
 
-    direct_quantize(args, model, test_loader)
+    direct_quantize(args, model.module, test_loader)
 
     torch.save(model.state_dict(), save_file)
-    model.freeze()
+    model.module.freeze()
 
     # 测试是否设备转移是否正确
     # model.cuda()
@@ -172,7 +182,7 @@ def main(args):
     # model.cpu()
     # print(model.qconv1.M.device)
 
-    quantize_inference(model, test_loader)
+    quantize_inference(model.module, test_loader)
 
     ################# Provato ad utilizzare il metodo quantize_fx => da problemi nella funzione fx.symbolic_trace
     # m = copy.deepcopy(model)

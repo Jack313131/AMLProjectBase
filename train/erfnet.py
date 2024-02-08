@@ -14,7 +14,6 @@ from module import *
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
-
         self.conv = nn.Conv2d(ninput, noutput-ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
@@ -25,30 +24,33 @@ class DownsamplerBlock (nn.Module):
         return F.relu(output)
     
     def quantize(self, num_bits=8):
-        self.qconv = QConv2d(self.conv, qi=True, qo=True, num_bits=num_bits)
-        self.qpool = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
-        self.qbn = QBatchNorm2d(self.bn, qi=False, qo=True, num_bits=num_bits)
-        self.qrelu = QReLU()
+        # self.qconv = QConvMaxPoolBN2d(self.conv, self.pool, self.bn, qi=True, qo=True, num_bits=num_bits)
+        # self.qrelu = QReLU()
+        #oppure
+        self.qconv = QConvMaxPoolBNReLU(self.conv, self.pool, self.bn, qi=True, qo=True, num_bits=num_bits)
+        return self
+
 
     def quantize_forward(self, x):
+        print(x.shape)
         x = self.qconv(x)
-        x = self.qpool(x)
-        x = self.qbn(x)
-        x = self.qrelu(x)
+        # print(x.shape)
+        # x = self.qrelu(x)
+        print(x.shape)
         return x
     
     def freeze(self):
         self.qconv.freeze()
-        self.qpool.freeze(self.qconv.qo)
-        self.qbn.freeze(self.qconv.qo)
-        self.qrelu.freeze(self.qconv.qo)
+        # self.qrelu.freeze(self.qconv.qo)
+        return self
 
     def quantize_inference(self, x):
         qx = self.qconv.qi.quantize_tensor(x)
         qx = self.qconv.quantize_inference(qx)
-        qx = self.qpool.quantize_inference(qx)
-        qx = self.qbn.quantize_inference(qx)
-        qx = self.qrelu.quantize_inference(qx)
+        # qx = self.qrelu.quantize_inference(qx)
+        # out = self.qrelu.qo.dequantize_tensor(qx)
+        out = self.qconv.qo.dequantize_tensor(qx)
+        return out
 
     
 
@@ -91,8 +93,9 @@ class non_bottleneck_1d(nn.Module):
         self.qconv1x3_2 = QConv2d(self.conv1x3_2, qi=True, qo=True, num_bits=num_bits)
         self.qrelu4 = QReLU()
         self.qdropout2d = QDropout2d(self.dropout, qi=False, qo=True, num_bits=num_bits)
-        self.qbn1 = QBatchNorm2d(self.bn1, qi=False, qo=True, num_bits=num_bits)
-        self.qbn2 = QBatchNorm2d(self.bn2, qi=False, qo=True, num_bits=num_bits)
+        self.qbn1 = self.bn1
+        self.qbn2 = self.bn2
+        return self
     
     def quantize_forward(self, x):
         output = self.qconv3x1_1(x)
@@ -127,6 +130,7 @@ class non_bottleneck_1d(nn.Module):
         self.qdropout2d.freeze()
         self.qbn1.freeze()
         self.qbn2.freeze()
+        return self
 
 
 
@@ -183,6 +187,7 @@ class Encoder(nn.Module):
         self.qinitial_block = self.initial_block.quantize()
         for layer in self.layers:
             layer.quantize(num_bits=num_bits)
+            return self
 
     def quantize_forward(self, x):
         x = self.qinitial_block.quantize_forward(x)
@@ -194,6 +199,7 @@ class Encoder(nn.Module):
         self.qinitial_block.freeze()
         for layer in self.layers:
             layer.freeze()
+        return self
 
     def quantize_inference(self, x):
         # Quantize the input tensor
@@ -236,7 +242,7 @@ class UpsamplerBlock (nn.Module):
 
     def quantize(self, num_bits=8):
         self.qconv = QConvTranspose2d(self.conv, qi=True, qo=True, num_bits=num_bits)
-        self.qbn = QBatchNorm2d(self.bn, qi=False, qo=True, num_bits=num_bits)
+        self.qbn = self.bn
 
     def quantize_forward(self, x):
         output = self.qconv(x)
@@ -352,6 +358,7 @@ class Net(nn.Module):
             return self.decoder.forward(output)
 
     def quantize_forward(self, x):
+        print(x.shape)
         output = self.qencoder.quantize_forward(x)
         return self.qdecoder.quantize_forward(output)
 
@@ -371,38 +378,40 @@ class Net(nn.Module):
         #print(self.decoder)
         return self
         
-class TestNet(nn.Module):
+class NetBN(nn.Module):
 
     def __init__(self, num_channels=1):
-        super(Net, self).__init__()
+        super(NetBN, self).__init__()
         self.conv1 = nn.Conv2d(num_channels, 40, 3, 1)
-        self.conv2 = nn.Conv2d(40, 40, 3, 1, groups=20)
-        self.fc = nn.Linear(5*5*40, 10)
+        self.bn1 = nn.BatchNorm2d(40)
+        self.conv2 = nn.Conv2d(40, 40, 3, 1)
+        self.bn2 = nn.BatchNorm2d(40)
+        self.fc = nn.Linear(5 * 5 * 40, 10)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu(x)
         x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
         x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 5*5*40)
+        x = x.view(-1, 5 * 5 * 40)
         x = self.fc(x)
         return x
 
     def quantize(self, num_bits=8):
-        self.qconv1 = QConv2d(self.conv1, qi=True, qo=True, num_bits=num_bits)
-        self.qrelu1 = QReLU()
+        self.qconv1 = QConvBNReLU(self.conv1, self.bn1, qi=True, qo=True, num_bits=num_bits)
         self.qmaxpool2d_1 = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
-        self.qconv2 = QConv2d(self.conv2, qi=False, qo=True, num_bits=num_bits)
-        self.qrelu2 = QReLU()
+        self.qconv2 = QConvBNReLU(self.conv2, self.bn2, qi=False, qo=True, num_bits=num_bits)
         self.qmaxpool2d_2 = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
         self.qfc = QLinear(self.fc, qi=False, qo=True, num_bits=num_bits)
 
     def quantize_forward(self, x):
         x = self.qconv1(x)
-        x = self.qrelu1(x)
         x = self.qmaxpool2d_1(x)
         x = self.qconv2(x)
-        x = self.qrelu2(x)
         x = self.qmaxpool2d_2(x)
         x = x.view(-1, 5*5*40)
         x = self.qfc(x)
@@ -410,24 +419,20 @@ class TestNet(nn.Module):
 
     def freeze(self):
         self.qconv1.freeze()
-        self.qrelu1.freeze(self.qconv1.qo)
         self.qmaxpool2d_1.freeze(self.qconv1.qo)
         self.qconv2.freeze(qi=self.qconv1.qo)
-        self.qrelu2.freeze(self.qconv2.qo)
         self.qmaxpool2d_2.freeze(self.qconv2.qo)
         self.qfc.freeze(qi=self.qconv2.qo)
 
     def quantize_inference(self, x):
         qx = self.qconv1.qi.quantize_tensor(x)
         qx = self.qconv1.quantize_inference(qx)
-        qx = self.qrelu1.quantize_inference(qx)
         qx = self.qmaxpool2d_1.quantize_inference(qx)
         qx = self.qconv2.quantize_inference(qx)
-        qx = self.qrelu2.quantize_inference(qx)
         qx = self.qmaxpool2d_2.quantize_inference(qx)
         qx = qx.view(-1, 5*5*40)
+
         qx = self.qfc.quantize_inference(qx)
+        
         out = self.qfc.qo.dequantize_tensor(qx)
         return out
-
-
