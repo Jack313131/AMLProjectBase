@@ -313,8 +313,6 @@ def train(args, model, enc=False):
                     # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
                     # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
                     if name.startswith("module."):
-                        print(name)
-                        print(own_state[name.split("module.")[-1]])
                         own_state[name.split("module.")[-1]].copy_(param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
                     else:
                         print(name, " not loaded")
@@ -349,8 +347,8 @@ def train(args, model, enc=False):
     else:
       print("Not freezing the backbone ... ")
 
+    pruning_setting_path = savedir + "/pruning_setting.txt"
     if args.pruning > 0 and not args.resume:
-        pruning_setting_path = savedir + "/pruning_setting.txt"
         if "encoder" in args.moduleErfnetPruning:
             if args.typePruning.casefold().replace(" ", "") == "unstructured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... ")
@@ -418,6 +416,16 @@ def train(args, model, enc=False):
             print()
         else:
             raise ValueError("No module for pruning specified between {encoder,decoder}")
+
+        with open(pruning_setting_path, 'a') as file:
+            file.write(f"\n\nPruning Results : \n")
+        for name, module in model.module.named_modules():
+            if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):  # o il tipo di layer che hai pruned
+                total = module.weight.nelement()
+                zeros = torch.sum(module.weight == 0)
+                with open(pruning_setting_path, 'a') as file:
+                    file.write(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {zeros.float() / total:.2f}% di zero weights\n")
+
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
