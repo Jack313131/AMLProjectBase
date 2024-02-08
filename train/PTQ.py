@@ -147,9 +147,11 @@ def main(args):
 
     model.eval()
     full_inference(args, model, test_loader)
+    print("### Full inference done ###")
 
     num_bits = 8
-    model.quantize(num_bits=num_bits)
+    model.module.quantize(num_bits=num_bits)
+    print("### Model quantize done ###")
     model.eval()
     print('Quantization bit: %d' % num_bits)
 
@@ -171,20 +173,24 @@ def main(args):
     # print(model.qconv1.M.device)
 
     quantize_inference(model, test_loader)
-    ## Provato ad utilizzare il metodo quantize_fx
+
+    ################# Provato ad utilizzare il metodo quantize_fx => da problemi nella funzione fx.symbolic_trace
     # m = copy.deepcopy(model)
+    # print("### Model copied ###")
     # m.eval()
     # qconfig_dict = {"": torch.quantization.get_default_qconfig(backend="fbgemm")}
 
     # example_input = (torch.rand(6, 3, args.height, args.height), torch.rand(6, 3, args.height, args.height))
-    # model_prepared = quantize_fx.prepare_fx(m, qconfig_dict, example_input)
+    # model_prepared = m.module.prepare_fx(m, qconfig_dict, example_input)
+    # model_prepared = torch.fx.symbolic_trace(model_prepared)
+    # print("### Starting inference ###")
     # with torch.inference_mode():
-    #     for data, target in enumerate(test_loader):
-    #         if args.cuda:
-    #             data = data.cuda()
-    #             target = target.cuda()
-    #         model_prepared(data)
-    
+    #     for i, (data, target) in enumerate(test_loader):
+    #       if args.cuda:
+    #           data = data.cuda()
+    #           target = target.cuda()
+    #       model_prepared(data)
+    # #print(model_prepared.shape)
     # model_quantized = quantize_fx.convert_fx(model_prepared)
     # torch.save(model_quantized.state_dict(), save_file)
         

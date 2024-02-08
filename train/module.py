@@ -481,3 +481,99 @@ class QDropout2d(QModule):
     def quantize_inference(self, x):
         # During inference, apply the dropout probability as a scaling factor
         return x * (1.0 - self.p)
+    
+
+class QConvTranspose2d(QModule):
+    def __init__(self, conv_module, qi=True, qo=True, num_bits=8):
+        super(QConvTranspose2d, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
+        self.num_bits = num_bits
+        self.conv_module = conv_module
+        self.qw = QParam(num_bits=num_bits)
+        self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as a buffer
+
+    def freeze(self, qi=None, qo=None):
+        if hasattr(self, 'qi') and qi is not None:
+            raise ValueError('qi has been provided in the init function.')
+        if not hasattr(self, 'qi') and qi is None:
+            raise ValueError('qi is not existed, should be provided.')
+
+        if hasattr(self, 'qo') and qo is not None:
+            raise ValueError('qo has been provided in the init function.')
+        if not hasattr(self, 'qo') and qo is None:
+            raise ValueError('qo is not existed, should be provided.')
+
+        if qi is not None:
+            self.qi = qi
+        if qo is not None:
+            self.qo = qo
+
+        self.M.data = (self.qw.scale * self.qi.scale / self.qo.scale).data
+
+        self.conv_module.weight.data = self.qw.quantize_tensor(self.conv_module.weight.data)
+        self.conv_module.weight.data = self.conv_module.weight.data - self.qw.zero_point
+
+    def forward(self, x):
+        if hasattr(self, 'qi'):
+            self.qi.update(x)
+            x = FakeQuantize.apply(x, self.qi)
+
+        self.qw.update(self.conv_module.weight.data)
+
+        x = F.conv_transpose2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw), self.conv_module.bias,
+                               stride=self.conv_module.stride, padding=self.conv_module.padding,
+                               output_padding=self.conv_module.output_padding, groups=self.conv_module.groups,
+                               dilation=self.conv_module.dilation)
+
+        if hasattr(self, 'qo'):
+            self.qo.update(x)
+            x = FakeQuantize.apply(x, self.qo)
+
+        return x
+
+    def quantize_inference(self, x):
+        x = x - self.qi.zero_point
+        x = self.conv_module(x)
+        x = self.M * x
+        x.round_()
+        x = x + self.qo.zero_point
+        x.clamp_(0., 2. ** self.num_bits - 1.).round_()
+        return x
+
+
+class QBatchNorm2d(QModule):
+    def __init__(self, bn_module, qi=True, qo=True, num_bits=8):
+        super(QBatchNorm2d, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
+        self.num_bits = num_bits
+        self.bn_module = bn_module
+        self.qw = QParam(num_bits=num_bits)
+        self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as a buffer
+
+    def freeze(self, qi=None, qo=None):
+        if hasattr(self, 'qi') and qi is not None:
+            raise ValueError('qi has been provided in the init function.')
+        if not hasattr(self, 'qi') and qi is None:
+            raise ValueError('qi is not existed, should be provided.')
+
+        if hasattr(self, 'qo') and qo is not None:
+            raise ValueError('qo has been provided in the init function.')
+        if not hasattr(self, 'qo') and qo is None:
+            raise ValueError('qo is not existed, should be provided.')
+
+        if qi is not None:
+            self.qi = qi
+        if qo is not None:
+            self.qo = qo
+
+        self.M.data = (self.qw.scale * self.qi.scale / self.qo.scale).data
+
+        # BatchNorm layer parameters are not quantized, only statistics are used for quantization
+        self.bn_module.weight.data = torch.tensor([1.0])
+        self.bn_module.bias.data = torch.tensor([0.0])
+
+    def forward(self, x):
+        if hasattr(self, 'qi'):
+            self.qi.update(x)
+            x = FakeQuantize.apply(x, self.qi)
+
+        # BatchNorm layer parameters are not quantized, only statistics are used for quantization
+        x = self.bn_module(x)
