@@ -20,8 +20,8 @@ class DownsamplerBlock (nn.Module):
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input):
-        print("#### DownSampler ####")
-        print("Input: ", input.shape)
+        #print("#### DownSampler ####")
+        #print("Input: ", input.shape)
         output = torch.cat([self.conv(input), self.pool(input)], 1)
         #print("Conv+pool: ", output.shape)
         # output = self.conv(input)
@@ -31,8 +31,8 @@ class DownsamplerBlock (nn.Module):
         #print("BN: ", output.shape)
         output = F.relu(output)
         #print("Relu: ", output.shape)
-        print("Output: ", output.shape)
-        print("#### END ####")
+        #print("Output: ", output.shape)
+        #print("#### END ####")
         return output
 
     def quantize(self, num_bits=8):
@@ -47,8 +47,8 @@ class DownsamplerBlock (nn.Module):
 
 
     def quantize_forward(self, input):
-        print("#### QDownSampler ####")
-        print("Input: ", input.shape)
+        # print("#### QDownSampler ####")
+        #print("Input: ", input.shape)
         # x = self.qconv(x)
         # print("QPool_f: ", x.shape)
         # x = self.qpool(x)
@@ -58,18 +58,23 @@ class DownsamplerBlock (nn.Module):
         # x = self.bn(x)
         x = self.qrelu(x)
         #print("Qrelu_f: ", x.shape)
-        print("Output: ", x.shape)
+        #print("Output: ", x.shape)
         # print(x.shape)
         # x = self.qrelu(x)
-        print("#### END ####")
+        #print("#### END ####")
         return x
 
-    def freeze(self):
-        self.qconv.freeze()
+    def freeze(self, qo=None):
+        print("##### Freezing DS #####")
+        print("qo: ", qo)
+        if qo is None:
+            self.qconv.freeze()
+        else:
+            self.qconv.freeze(qi=qo)
         self.qpool.freeze(self.qconv.qo)
         self.qrelu.freeze(self.qconv.qo)
         # self.qrelu.freeze(self.qconv.qo)
-        return self
+        return self.qconv.qo
 
     def quantize_inference(self, x):
         qx = self.qconv.qi.quantize_tensor(x)
@@ -95,36 +100,38 @@ class non_bottleneck_1d(nn.Module):
         self.dropout = nn.Dropout2d(dropprob)
 
     def forward(self, input):
-        print("#### NB1D ####")
-        print("Input: ", input.shape)
+        #print("#### NB1D ####")
+        #print("Input: ", input.shape)
         output = self.conv3x1_1(input)
-        print("Conv: ", output.shape)
+        # print("Conv: ", output.shape)
         output = F.relu(output)
-        print("Relu: ", output.shape)
+        # print("Relu: ", output.shape)
 
         output = self.conv1x3_1(output)
-        print("Conv: ", output.shape)
+        # print("Conv: ", output.shape)
         output = self.bn1(output)
-        print("BN: ", output.shape)
+        # print("BN: ", output.shape)
         output = F.relu(output)
-        print("Relu: ", output.shape)
+        # print("Relu: ", output.shape)
 
         output = self.conv3x1_2(output)
-        print("Conv: ", output.shape)
+        # print("Conv: ", output.shape)
         output = F.relu(output)
-        print("Relu: ", output.shape)
+        # print("Relu: ", output.shape)
         output = self.conv1x3_2(output)
-        print("Conv: ", output.shape)
+        # print("Conv: ", output.shape)
         output = self.bn2(output)
-        print("BN: ", output.shape)
+        # print("BN: ", output.shape)
 
         if (self.dropout.p != 0):
             output = self.dropout(output)
-            print("Drop: ", output.shape)
+            #print("Drop: ", output.shape)
 
         output = F.relu(output+input)    #+input = identity (residual connection)
-        print("Relu: ", output.shape)
-        print("#### END ####")
+        # print("Relu: ", output.shape)
+        #print("Output: ", output.shape)
+        #print("#### END ####")
+        return output
         #return F.relu(output+input)    #+input = identity (residual connection)
 
     def quantize(self, num_bits=8):
@@ -142,45 +149,46 @@ class non_bottleneck_1d(nn.Module):
         return self
 
     def quantize_forward(self, input):
-        print("### NB1D ###")
-        print("Input: ", input.shape)
+        # print("### QNB1D ###")
+        # print("Input: ", input.shape)
         output = self.qconv3x1_1(input)
-        print("QConv3x1_1_f: {}", output.shape)
+        # print("QConv3x1_1_f: ", output.shape)
         output = self.qrelu1(output)
-        print("QRelu1_f: {}", output.shape)
+        # print("QRelu1_f: {}", output.shape)
         output = self.qconv1x3_1(output)
-        print("QConv1x3_1_f: {}", output.shape)
+        # print("QConv1x3_1_f: ", output.shape)
         
         output = self.qconv3x1_2(output)
-        print("QConv3x1_2_f: {}", output.shape)
+        # print("QConv3x1_2_f: ", output.shape)
         output = self.qrelu2(output)
-        print("QRelu2f: {}", output.shape)
+        # print("QRelu2f: ", output.shape)
         
         output = self.qconv1x3_2(output)
-        print("QConv1x3_2_f: {}", output.shape)
+        # print("QConv1x3_2_f: ", output.shape)
         # output = self.qbn2(output)
 
         if hasattr(self, 'qdropout2d'):
             output = self.qdropout2d(output)
-            print("QDropout_f: {}", output.shape)
+            #print("QDropout_f: ", output.shape)
 
         # Apply the identity (residual connection) and ReLU
         output = self.qrelu3(output + input)  # +x = identity (residual connection)
-        print("QRelu3_f: {}", output.shape)
-        print("#### END ####")
+        # print("QRelu3_f: {}", output.shape)
+        #print("Outpuy: ", output.shape)
+        #print("#### END ####")
         return output
 
-    def freeze(self):
-        self.qconv3x1_1.freeze()
+    def freeze(self, qo):
+        self.qconv3x1_1.freeze(qi=qo)
         self.qrelu1.freeze(self.qconv3x1_1.qo)
         self.qconv1x3_1.freeze(qi=self.qconv3x1_1.qo)
         self.qconv3x1_2.freeze(qi=self.qconv1x3_1.qo)
         self.qrelu3.freeze(self.qconv3x1_2.qo)
         self.qconv1x3_2.freeze(qi=self.qconv3x1_2.qo)
-        self.qrelu4.freeze(self.qconv1x3_2.qo)
+        self.qrelu3.freeze(self.qconv1x3_2.qo)
         self.qdropout2d.freeze(self.qconv1x3_2.qo)
         # self.qbn2.freeze()
-        return self
+        return self.qconv1x3_2.qo
 
     def quantize_inference(self, x):
         qx = self.qconv3x1_1.qi.quantize_tensor(x)
@@ -240,21 +248,22 @@ class Encoder(nn.Module):
         return self
 
     def quantize_forward(self, x, predict=False):
-        print("### Encoder (predict {}) ###".format(predict))
+        # print("### Encoder (predict {}) ###".format(predict))
         x = self.qinitial_block.quantize_forward(x)
         
         for layer in self.qlayers:
             x = layer.quantize_forward(x)
         if predict:
-            print("### Output Conv ###")
+            # print("### Output Conv ###")
             x = self.qoutput_conv(x)
         return x
 
     def freeze(self):
-        self.qinitial_block.freeze()
+        print("#### Freezing Encoder ####")
+        qo = self.qinitial_block.freeze()
         for layer in self.qlayers:
-            layer.freeze()
-        return self
+            qo = layer.freeze(qo)
+        self.qoutput_conv.freeze(qi=qo)
 
     def quantize_inference(self, x):
         # Quantize the input tensor
@@ -269,15 +278,15 @@ class Encoder(nn.Module):
             qx = self.qoutput_conv.quantize_inference(qx)
         return qx
 
-    def prepare_fx(self, m, qconfig_dict, example_input):
-        self.initial_block = quantize_fx.prepare_fx(self.initial_block, qconfig_dict, example_input)
-        l = nn.ModuleList()
-        for layer in self. layers:
-            layer.qconfig = torch.quantization.default_qconfig
-            l.append(quantize_fx.prepare_fx(layer, qconfig_dict, example_input))
-        self.layers = nn.ModuleList(l)
-        self.output_conv = quantize_fx.prepare_fx(self.output_conv, qconfig_dict, example_input)
-        return self
+    # def prepare_fx(self, m, qconfig_dict, example_input):
+    #     self.initial_block = quantize_fx.prepare_fx(self.initial_block, qconfig_dict, example_input)
+    #     l = nn.ModuleList()
+    #     for layer in self. layers:
+    #         layer.qconfig = torch.quantization.default_qconfig
+    #         l.append(quantize_fx.prepare_fx(layer, qconfig_dict, example_input))
+    #     self.layers = nn.ModuleList(l)
+    #     self.output_conv = quantize_fx.prepare_fx(self.output_conv, qconfig_dict, example_input)
+    #     return self
 
 
 
@@ -290,22 +299,39 @@ class UpsamplerBlock (nn.Module):
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input):
+        # print("#### US ####")
+        # print("Input: ", input.shape)
         output = self.conv(input)
+        # print("Conv: ", output.shape)
         output = self.bn(output)
-        return F.relu(output)
+        # print("Bn: ", output.shape)
+        output =  F.relu(output)
+        # print("Relu: ", output.shape)
+        # print("Output: ", output.shape)
+        return output
+        # return F.relu(output)
 
     def quantize(self, num_bits=8):
         self.qconv = QConvTBNReLU(self.conv, self.bn, qi=True, qo=True, num_bits=num_bits)
         # self.qbn = self.bn
+        return self
 
-    def quantize_forward(self, x):
-        output = self.qconv(x)
+    def quantize_forward(self, input):
+        # print("#### QUS ####")
+        # print("Input: ", input.shape)
+        output = self.qconv(input)
         # output = self.qbn(output)
         # return F.relu(output)
         return output
 
-    def freeze(self):
-        self.qconv.freeze()
+    def freeze(self, qo=None):
+        print("##### Freezing US #####")
+        print ("qo: ", qo)
+        if qo is None:
+            self.qconv.freeze()
+        else:
+            self.qconv.freeze(qi=qo)
+        return self.qconv.qo
         # self.qbn.freeze()
 
     def quantize_inference(self, x):
@@ -345,26 +371,26 @@ class Decoder(nn.Module):
             if hasattr(layer, 'quantize'):
                 layer.quantize(num_bits=num_bits)
 
-        if hasattr(self, 'output_conv'):
-            self.q_output_conv = QConvTranspose2d(self.output_conv, qi=True, qo=True, num_bits=num_bits)
-
-    def quantize_forward(self, x):
+        self.q_output_conv = QConvTranspose2d(self.output_conv, qi=True, qo=True, num_bits=num_bits)
+        return self
+    
+    def quantize_forward(self, input):
+        # print("### Decoder ###")
+        output = input
         for layer in self.layers:
-            if hasattr(layer, 'quantize_forward'):
-                x = layer.quantize_forward(x)
+            output = layer.quantize_forward(output)
 
-        if hasattr(self, 'q_output_conv'):
-            x = self.q_output_conv(x)
+        output = self.q_output_conv(output)
 
-        return x
+        return output
 
     def freeze(self):
+        print("#### Freezing Decoder ####")
         for layer in self.layers:
             if hasattr(layer, 'freeze'):
-                layer.freeze()
+                qo = layer.freeze()
 
-        if hasattr(self, 'q_output_conv'):
-            self.q_output_conv.freeze()
+        self.q_output_conv.freeze(qi=qo)
 
     def quantize_inference(self, x):
         for layer in self.layers:
@@ -413,9 +439,9 @@ class Net(nn.Module):
             return self.decoder.forward(output)
 
     def quantize_forward(self, x):
-        print("Input: ", x.shape)
+        # print("Input: ", x.shape)
         output = self.qencoder.quantize_forward(x)
-        print("Output: ", x.shape)
+        # print("Output: ", x.shape)
         return self.qdecoder.quantize_forward(output)
 
     def freeze(self):

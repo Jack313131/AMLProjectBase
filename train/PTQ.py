@@ -89,13 +89,35 @@ def full_inference(args, model, test_loader):
     print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
     return miou
 
-def quantize_inference(model, test_loader):
+def quantize_inference(args, model, test_loader):
     correct = 0
+    intersection = 0
+    union = 0
     for i, (data, target) in enumerate(test_loader, 1):
-        output = model.quantize_inference(data)
-        pred = output.argmax(dim=1, keepdim=True)
-        correct += pred.eq(target.view_as(pred)).sum().item()
+        if args.cuda:
+            data = data.cuda()
+            target = target.cuda()
+        data = Variable(data)
+        with torch.no_grad():
+            output = model.quantize_inference(data)
+            pred = output.argmax(dim=1)
+            intersection += torch.logical_and(pred, target).sum().item()
+            union += torch.logical_or(pred, target).sum().item()
+    miou = intersection / union
+    print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
+    return miou
     #print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
+
+# def quantize_inference(args, model, test_loader):
+#     correct = 0
+#     for i, (data, target) in enumerate(test_loader, 1):
+#         if args.cuda:
+#             data = data.cuda()
+#             target = target.cuda()
+#         output = model.quantize_inference(data)
+#         pred = output.argmax(dim=1, keepdim=True)
+#         correct += pred.eq(target.view_as(pred)).sum().item()
+#     #print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
 
 class MyCoTransform(object):
     def __init__(self, enc, augment=True, height=512):
@@ -126,7 +148,7 @@ class MyCoTransform(object):
 def main(args):
     enc = False
     drivedir = f'/content/drive/MyDrive/'
-    save_file = drivedir + '[PTQ]'
+    save_file = drivedir + '[PTQ]/' + 'quantized_wights.pth'
     if not os.path.exists(drivedir):
         assert("Drivedir does not exist")
 
@@ -179,15 +201,6 @@ def main(args):
     print("Model and weights LOADED successfully")
 
 
-    # if using_bn:
-    #     model = NetBN()
-    #     model.load_state_dict(torch.load('ckpt/mnist_cnnbn.pt', map_location='cpu'))
-    #     save_file = "ckpt/mnist_cnnbn_ptq.pt"
-    # else:
-    #     model = Net()
-    #     model.load_state_dict(torch.load('ckpt/mnist_cnn.pt', map_location='cpu'))
-    #     save_file = "ckpt/mnist_cnn_ptq.pt"
-
     model.eval()
     print("### Full inference ###")
     full_inference(args, model, test_loader)
@@ -207,6 +220,7 @@ def main(args):
     direct_quantize(args, model.module, test_loader)
 
     torch.save(model.state_dict(), save_file)
+    print("### Model Saved ###")
     model.module.freeze()
 
     # 测试是否设备转移是否正确
