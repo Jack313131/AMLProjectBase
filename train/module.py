@@ -702,8 +702,20 @@ class QDropout2d(QModule):
         return x
 
     def freeze(self, qi=None, qo=None):
-        # No parameters to freeze for dropout
-        pass
+        if hasattr(self, 'qi') and qi is not None:
+            raise ValueError('qi has been provided in init function.')
+        if not hasattr(self, 'qi') and qi is None:
+            raise ValueError('qi is not existed, should be provided.')
+
+        if hasattr(self, 'qo') and qo is not None:
+            raise ValueError('qo has been provided in init function.')
+        if not hasattr(self, 'qo') and qo is None:
+            raise ValueError('qo is not existed, should be provided.')
+
+        if qi is not None:
+            self.qi = qi
+        if qo is not None:
+            self.qo = qo
 
     def quantize_inference(self, x):
         # During inference, apply the dropout probability as a scaling factor

@@ -147,8 +147,9 @@ class MyCoTransform(object):
     
 def main(args):
     enc = False
+    num_bits = 8
     drivedir = f'/content/drive/MyDrive/'
-    save_file = drivedir + '[PTQ]/' + 'quantized_wights.pth'
+    save_file = drivedir + '[PTQ]/' + f'quantized_wights{num_bits}.pth'
     if not os.path.exists(drivedir):
         assert("Drivedir does not exist")
 

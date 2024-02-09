@@ -14,7 +14,7 @@ from module import *
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
-        print("In: {}, out: {}", ninput, noutput)
+        # print("In: {}, out: {}", ninput, noutput)
         self.conv = nn.Conv2d(ninput, noutput-ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
@@ -37,14 +37,13 @@ class DownsamplerBlock (nn.Module):
 
     def quantize(self, num_bits=8):
         self.qconv = QConv2d(self.conv, qi=True, qo=True, num_bits=num_bits)
-        self.qpool = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
+        self.qpool = QMaxPooling2d(kernel_size=2, stride=2, padding=0, qi=True, num_bits=num_bits)
         self.qrelu = QReLU()
         # self.qconv = QConvMaxPoolBN2d(self.conv, self.pool, self.bn, qi=True, qo=True, num_bits=num_bits)
         # self.qrelu = QReLU()
         #oppure
         # self.qconv = QConvMaxPoolBNReLU(self.conv, self.pool, self.bn, qi=True, qo=True, num_bits=num_bits)
         return self
-
 
     def quantize_forward(self, input):
         # print("#### QDownSampler ####")
@@ -64,17 +63,12 @@ class DownsamplerBlock (nn.Module):
         #print("#### END ####")
         return x
 
-    def freeze(self, qo=None):
+    def freeze(self):
         print("##### Freezing DS #####")
-        print("qo: ", qo)
-        if qo is None:
-            self.qconv.freeze()
-        else:
-            self.qconv.freeze(qi=qo)
-        self.qpool.freeze(self.qconv.qo)
+        self.qconv.freeze()
+        self.qpool.freeze()
         self.qrelu.freeze(self.qconv.qo)
         # self.qrelu.freeze(self.qconv.qo)
-        return self.qconv.qo
 
     def quantize_inference(self, x):
         qx = self.qconv.qi.quantize_tensor(x)
@@ -178,17 +172,18 @@ class non_bottleneck_1d(nn.Module):
         #print("#### END ####")
         return output
 
-    def freeze(self, qo):
-        self.qconv3x1_1.freeze(qi=qo)
+    def freeze(self):
+        print("##### Freezing NB1D #####")
+        self.qconv3x1_1.freeze()
         self.qrelu1.freeze(self.qconv3x1_1.qo)
         self.qconv1x3_1.freeze(qi=self.qconv3x1_1.qo)
         self.qconv3x1_2.freeze(qi=self.qconv1x3_1.qo)
         self.qrelu3.freeze(self.qconv3x1_2.qo)
         self.qconv1x3_2.freeze(qi=self.qconv3x1_2.qo)
-        self.qrelu3.freeze(self.qconv1x3_2.qo)
-        self.qdropout2d.freeze(self.qconv1x3_2.qo)
+        if hasattr(self, 'qdropout2d'):
+            self.qdropout2d.freeze(self.qconv1x3_2.qo)
+        self.qrelu3.freeze()
         # self.qbn2.freeze()
-        return self.qconv1x3_2.qo
 
     def quantize_inference(self, x):
         qx = self.qconv3x1_1.qi.quantize_tensor(x)
@@ -244,7 +239,7 @@ class Encoder(nn.Module):
         self.qlayers = nn.ModuleList()
         for layer in self.layers:
             self.qlayers.append(layer.quantize(num_bits=num_bits))
-        self.qoutput_conv = QConv2d(self.output_conv, qi=False, qo=True, num_bits=num_bits)
+        self.qoutput_conv = QConv2d(self.output_conv, qi=True, qo=True, num_bits=num_bits)
         return self
 
     def quantize_forward(self, x, predict=False):
@@ -260,10 +255,10 @@ class Encoder(nn.Module):
 
     def freeze(self):
         print("#### Freezing Encoder ####")
-        qo = self.qinitial_block.freeze()
+        self.qinitial_block.freeze()
         for layer in self.qlayers:
-            qo = layer.freeze(qo)
-        self.qoutput_conv.freeze(qi=qo)
+            layer.freeze()
+        self.qoutput_conv.freeze()
 
     def quantize_inference(self, x):
         # Quantize the input tensor
@@ -324,14 +319,9 @@ class UpsamplerBlock (nn.Module):
         # return F.relu(output)
         return output
 
-    def freeze(self, qo=None):
+    def freeze(self):
         print("##### Freezing US #####")
-        print ("qo: ", qo)
-        if qo is None:
-            self.qconv.freeze()
-        else:
-            self.qconv.freeze(qi=qo)
-        return self.qconv.qo
+        self.qconv.freeze()
         # self.qbn.freeze()
 
     def quantize_inference(self, x):
@@ -387,10 +377,9 @@ class Decoder(nn.Module):
     def freeze(self):
         print("#### Freezing Decoder ####")
         for layer in self.layers:
-            if hasattr(layer, 'freeze'):
-                qo = layer.freeze()
+            layer.freeze()
 
-        self.q_output_conv.freeze(qi=qo)
+        self.q_output_conv.freeze()
 
     def quantize_inference(self, x):
         for layer in self.layers:
