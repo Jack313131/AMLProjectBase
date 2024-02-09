@@ -159,12 +159,14 @@ class QConv2d(QModule):
         if hasattr(self, 'qi'):
             self.qi.update(x)
             x = FakeQuantize.apply(x, self.qi)
-
+        #print("Qw: ", self.qw)
         self.qw.update(self.conv_module.weight.data)
 
-        x = F.conv2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw), self.conv_module.bias, 
+        x = F.conv2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw),
+                     self.conv_module.bias, 
                      stride=self.conv_module.stride,
-                     padding=self.conv_module.padding, dilation=self.conv_module.dilation, 
+                     padding=self.conv_module.padding,
+                     dilation=self.conv_module.dilation, 
                      groups=self.conv_module.groups)
 
         if hasattr(self, 'qo'):
@@ -299,10 +301,10 @@ class QMaxPooling2d(QModule):
         return F.max_pool2d(x, self.kernel_size, self.stride, self.padding)
 
 
-class QConvBNReLU(QModule):
+class QConvTBNReLU(QModule):
 
     def __init__(self, conv_module, bn_module, qi=True, qo=True, num_bits=8):
-        super(QConvBNReLU, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
+        super(QConvTBNReLU, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
         self.num_bits = num_bits
         self.conv_module = conv_module
         self.bn_module = bn_module
@@ -412,6 +414,116 @@ class QConvBNReLU(QModule):
         return x
 
 
+class QConvBNReLU(nn.Module):
+
+    def __init__(self, conv_module, bn_module, qi=True, qo=True, num_bits=8):
+        super(QConvBNReLU, self).__init__()
+        self.num_bits = num_bits
+        self.conv_module = conv_module
+        self.bn_module = bn_module
+        self.qw = torch.nn.Parameter(torch.Tensor(conv_module.out_channels))
+        self.qb = torch.nn.Parameter(torch.Tensor(conv_module.out_channels))
+        self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as buffer
+
+    def fold_bn(self, mean, std):
+        if self.bn_module.affine:
+            gamma_ = self.bn_module.weight / std
+            weight = self.conv_module.weight * gamma_.view(self.conv_module.out_channels, 1, 1, 1)
+            if self.conv_module.bias is not None:
+                bias = gamma_ * self.conv_module.bias - gamma_ * mean + self.bn_module.bias
+            else:
+                bias = self.bn_module.bias - gamma_ * mean
+        else:
+            gamma_ = 1 / std
+            weight = self.conv_module.weight * gamma_
+            if self.conv_module.bias is not None:
+                bias = gamma_ * self.conv_module.bias - gamma_ * mean
+            else:
+                bias = -gamma_ * mean
+
+        return weight, bias
+
+    def forward(self, x):
+        if hasattr(self, 'qi'):
+            self.qi.update(x)
+            x = FakeQuantize.apply(x, self.qi)
+
+        if self.training:
+            y = F.conv_transpose2d(x, self.conv_module.weight, self.conv_module.bias,
+                                    stride=self.conv_module.stride,
+                                    padding=self.conv_module.padding,
+                                    output_padding=self.conv_module.output_padding,
+                                    groups=self.conv_module.groups,
+                                    dilation=self.conv_module.dilation)
+            y = y.permute(1, 0, 2, 3)  # NCHW -> CNHW
+            y = y.contiguous().view(self.conv_module.out_channels, -1)  # CNHW -> C,NHW
+            mean = y.mean(1).detach()
+            var = y.var(1).detach()
+            self.bn_module.running_mean = \
+                (1 - self.bn_module.momentum) * self.bn_module.running_mean + \
+                self.bn_module.momentum * mean
+            self.bn_module.running_var = \
+                (1 - self.bn_module.momentum) * self.bn_module.running_var + \
+                self.bn_module.momentum * var
+        else:
+            mean = Variable(self.bn_module.running_mean)
+            var = Variable(self.bn_module.running_var)
+
+        std = torch.sqrt(var + self.bn_module.eps)
+
+        weight, bias = self.fold_bn(mean, std)
+
+        self.qw.update(weight.data)
+
+        x = F.conv2d(x, FakeQuantize.apply(weight, self.qw), bias,
+                     stride=self.conv_module.stride,
+                     padding=self.conv_module.padding, dilation=self.conv_module.dilation,
+                     groups=self.conv_module.groups)
+
+        x = F.relu(x)
+
+        if hasattr(self, 'qo'):
+            self.qo.update(x)
+            x = FakeQuantize.apply(x, self.qo)
+
+        return x
+
+    def freeze(self, qi=None, qo=None):
+        if hasattr(self, 'qi') and qi is not None:
+            raise ValueError('qi has been provided in init function.')
+        if not hasattr(self, 'qi') and qi is None:
+            raise ValueError('qi is not existed, should be provided.')
+
+        if hasattr(self, 'qo') and qo is not None:
+            raise ValueError('qo has been provided in init function.')
+        if not hasattr(self, 'qo') and qo is None:
+            raise ValueError('qo is not existed, should be provided.')
+
+        if qi is not None:
+            self.qi = qi
+        if qo is not None:
+            self.qo = qo
+        self.M.data = (self.qw.scale * self.qi.scale / self.qo.scale).data
+
+        std = torch.sqrt(self.bn_module.running_var + self.bn_module.eps)
+
+        weight, bias = self.fold_bn(self.bn_module.running_mean, std)
+        self.conv_module.weight.data = self.qw.quantize_tensor(weight.data)
+        self.conv_module.weight.data = self.conv_module.weight.data - self.qw.zero_point
+
+        self.conv_module.bias.data = quantize_tensor(bias, scale=self.qi.scale * self.qw.scale,
+                                                     zero_point=0, num_bits=32, signed=True)
+
+    def quantize_inference(self, x):
+        x = x - self.qi.zero_point
+        x = self.conv_module(x)
+        x = self.M * x
+        x.round_()
+        x = x + self.qo.zero_point
+        x.clamp_(0., 2. ** self.num_bits - 1.).round_()
+        return x
+
+
 class QSigmoid(QModule):
 
     def __init__(self, qi=True, qo=True, num_bits=8, lut_size=64):
@@ -512,6 +624,10 @@ class QConvTranspose2d(QModule):
         self.conv_module.weight.data = self.qw.quantize_tensor(self.conv_module.weight.data)
         self.conv_module.weight.data = self.conv_module.weight.data - self.qw.zero_point
 
+        self.conv_module.bias.data = quantize_tensor(self.conv_module.bias.data, scale=self.qi.scale * self.qw.scale,
+                                                     zero_point=0, num_bits=32, signed=True)
+
+
     def forward(self, x):
         if hasattr(self, 'qi'):
             self.qi.update(x)
@@ -519,9 +635,12 @@ class QConvTranspose2d(QModule):
 
         self.qw.update(self.conv_module.weight.data)
 
-        x = F.conv_transpose2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw), self.conv_module.bias,
-                               stride=self.conv_module.stride, padding=self.conv_module.padding,
-                               output_padding=self.conv_module.output_padding, groups=self.conv_module.groups,
+        x = F.conv_transpose2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw),
+                               self.conv_module.bias,
+                               stride=self.conv_module.stride,
+                               padding=self.conv_module.padding,
+                               output_padding=self.conv_module.output_padding,
+                               groups=self.conv_module.groups,
                                dilation=self.conv_module.dilation)
 
         if hasattr(self, 'qo'):
@@ -540,79 +659,79 @@ class QConvTranspose2d(QModule):
         return x
 
 
-class QConvMaxPoolBN(nn.Module):
-    def __init__(self, conv_module, pool_module, bn_module, qi=True, qo=True, num_bits=8):
-        super(QConvMaxPoolBN, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
-        self.num_bits = num_bits
-        self.conv_module = conv_module
-        self.pool_module = pool_module
-        self.bn_module = bn_module
-        self.qw = QParam(num_bits=num_bits)
-        self.qp = QParam(num_bits=num_bits)
-        self.qb = QParam(num_bits=num_bits) #num_bits=32
-        self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as a buffer
+# class QConvMaxPoolBN(QModule):
+#     def __init__(self, conv_module, pool_module, bn_module, qi=True, qo=True, num_bits=8):
+#         super(QConvMaxPoolBN, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
+#         self.num_bits = num_bits
+#         self.conv_module = conv_module
+#         self.pool_module = pool_module
+#         self.bn_module = bn_module
+#         self.qw = QParam(num_bits=num_bits)
+#         self.qp = QParam(num_bits=num_bits)
+#         self.qb = QParam(num_bits=num_bits) #num_bits=32
+#         self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as a buffer
 
-    def fold_bn(self, mean, std):
-        if self.bn_module.affine:
-            gamma_ = self.bn_module.weight / std
-            weight = self.conv_module.weight * gamma_.view(self.conv_module.out_channels, 1, 1, 1)
-            if self.conv_module.bias is not None:
-                bias = gamma_ * self.conv_module.bias - gamma_ * mean + self.bn_module.bias
-            else:
-                bias = self.bn_module.bias - gamma_ * mean
-        else:
-            gamma_ = 1 / std
-            weight = self.conv_module.weight * gamma_
-            if self.conv_module.bias is not None:
-                bias = gamma_ * self.conv_module.bias - gamma_ * mean
-            else:
-                bias = -gamma_ * mean
+#     def fold_bn(self, mean, std):
+#         if self.bn_module.affine:
+#             gamma_ = self.bn_module.weight / std
+#             weight = self.conv_module.weight * gamma_.view(self.conv_module.out_channels, 1, 1, 1)
+#             if self.conv_module.bias is not None:
+#                 bias = gamma_ * self.conv_module.bias - gamma_ * mean + self.bn_module.bias
+#             else:
+#                 bias = self.bn_module.bias - gamma_ * mean
+#         else:
+#             gamma_ = 1 / std
+#             weight = self.conv_module.weight * gamma_
+#             if self.conv_module.bias is not None:
+#                 bias = gamma_ * self.conv_module.bias - gamma_ * mean
+#             else:
+#                 bias = -gamma_ * mean
             
-        return weight, bias
+#         return weight, bias
 
-    def freeze(self):
-        self.M.data = (self.qw.scale * self.qp.scale * self.qb.scale / self.qo.scale).data
+#     def freeze(self):
+#         self.M.data = (self.qw.scale * self.qp.scale * self.qb.scale / self.qo.scale).data
 
-        self.conv_module.weight.data = self.qw.quantize_tensor(self.conv_module.weight.data)
-        self.conv_module.weight.data = self.conv_module.weight.data - self.qw.zero_point
+#         self.conv_module.weight.data = self.qw.quantize_tensor(self.conv_module.weight.data)
+#         self.conv_module.weight.data = self.conv_module.weight.data - self.qw.zero_point
 
-    def forward(self, x):
-        if hasattr(self, 'qi'):
-            self.qi.update(x)
-            x = FakeQuantize.apply(x, self.qi)
+#     def forward(self, x):
+#         if hasattr(self, 'qi'):
+#             self.qi.update(x)
+#             x = FakeQuantize.apply(x, self.qi)
 
-        self.qw.update(self.conv_module.weight.data)
-        self.qp.update(x)
-        self.qb.update(x)
+#         self.qw.update(self.conv_module.weight.data)
+#         self.qp.update(x)
+#         self.qb.update(x)
 
-        x = F.conv2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw), self.conv_module.bias,
-                     stride=self.conv_module.stride, padding=self.conv_module.padding, dilation=self.conv_module.dilation,
-                     groups=self.conv_module.groups)
+#         x = F.conv2d(x, FakeQuantize.apply(self.conv_module.weight, self.qw), self.conv_module.bias,
+#                      stride=self.conv_module.stride, padding=self.conv_module.padding, dilation=self.conv_module.dilation,
+#                      groups=self.conv_module.groups)
 
-        x = self.pool_module(x)
+#         x = self.pool_module(x)
 
-        x = self.bn_module(x)
+#         x = self.bn_module(x)
 
-        if self.qo:
-            x = FakeQuantize.apply(x, self.qo)
+#         if self.qo:
+#             x = FakeQuantize.apply(x, self.qo)
 
-        return x
+#         return x
 
-    def quantize_inference(self, x):
-        x = x - self.qi.zero_point
-        x = F.conv2d(x, self.conv_module.weight, self.conv_module.bias,
-                     stride=self.conv_module.stride, padding=self.conv_module.padding, dilation=self.conv_module.dilation,
-                     groups=self.conv_module.groups)
-        x = self.pool_module(x)
-        x = self.bn_module(x)
-        x = self.M * x
-        x.round_()
-        x = x + self.qo.zero_point
-        x.clamp_(0., 2. ** self.num_bits - 1.).round_()
-        return x
+#     def quantize_inference(self, x):
+#         x = x - self.qi.zero_point
+#         x = F.conv2d(x, self.conv_module.weight, self.conv_module.bias,
+#                      stride=self.conv_module.stride, padding=self.conv_module.padding, dilation=self.conv_module.dilation,
+#                      groups=self.conv_module.groups)
+#         x = self.pool_module(x)
+#         x = self.bn_module(x)
+#         x = self.M * x
+#         x.round_()
+#         x = x + self.qo.zero_point
+#         x.clamp_(0., 2. ** self.num_bits - 1.).round_()
+#         return x
 
 
-class QConvMaxPoolBNReLU(nn.Module):
+class QConvMaxPoolBNReLU(QModule):
     def __init__(self, conv_module, pool_module, bn_module, qi=True, qo=True, num_bits=8):
         super(QConvMaxPoolBNReLU, self).__init__(qi=qi, qo=qo, num_bits=num_bits)
         self.num_bits = num_bits
@@ -624,23 +743,35 @@ class QConvMaxPoolBNReLU(nn.Module):
         self.qb = QParam(num_bits=num_bits) #num_bits = 32
         self.register_buffer('M', torch.tensor([], requires_grad=False))  # Register M as a buffer
 
-    def fold_bn(self, mean, std):
-        if self.bn_module.affine:
-            gamma_ = self.bn_module.weight / std
-            weight = self.conv_module.weight * gamma_.view(self.conv_module.out_channels, 1, 1, 1)
-            if self.conv_module.bias is not None:
-                bias = gamma_ * self.conv_module.bias - gamma_ * mean + self.bn_module.bias
-            else:
-                bias = self.bn_module.bias - gamma_ * mean
-        else:
-            gamma_ = 1 / std
-            weight = self.conv_module.weight * gamma_
-            if self.conv_module.bias is not None:
-                bias = gamma_ * self.conv_module.bias - gamma_ * mean
-            else:
-                bias = -gamma_ * mean
+    # def fold_bn(self, mean, std):
+    #     if self.bn_module.affine:
+    #         gamma_ = self.bn_module.weight / std
+    #         weight = self.pool_module.weight * gamma_.view(self.pool_module.in_channels, 1, 1, 1)
+    #         if self.pool_module.bias is not None:
+    #             bias = gamma_ * self.pool_module.bias - gamma_ * mean + self.bn_module.bias
+    #         else:
+    #             bias = self.bn_module.bias - gamma_ * mean
+    #     else:
+    #         gamma_ = 1 / std
+    #         weight = self.pool_module.weight * gamma_
+    #         if self.pool_module.bias is not None:
+    #             bias = gamma_ * self.pool_module.bias - gamma_ * mean
+    #         else:
+    #             bias = -gamma_ * mean
             
-        return weight, bias
+    #     return weight, bias
+        
+    def fold_bn(self, mean, std):
+        gamma_ = self.bn_module.weight / std
+        if self.bn_module.affine:
+            bias = self.bn_module.bias - gamma_ * mean
+        else:
+            bias = None  # No bias if not using affine transformation
+
+        return gamma_, bias
+
+
+
 
     def freeze(self, qi=None, qo=None):
 
@@ -673,23 +804,30 @@ class QConvMaxPoolBNReLU(nn.Module):
     def forward(self, x):
         if hasattr(self, 'qi'):
             self.qi.update(x)
+            print("Pre fake x: {}", x.shape)
             x = FakeQuantize.apply(x, self.qi)
+            print("After fake x: {}", x.shape)
 
         if self.training:
+            print("Pre conv y: {}", y.shape)
             y = F.conv2d(x, self.conv_module.weight, self.conv_module.bias, 
                             stride=self.conv_module.stride,
                             padding=self.conv_module.padding,
                             dilation=self.conv_module.dilation,
                             groups=self.conv_module.groups)
+            print("After conv y: {}", y.shape)
             y = self.pool_module(y)  # Max pooling
+            print("After pool y: {}", y.shape)
             y = self.bn_module(y)    # Batch normalization
-
+            print("After bn y: {}", y.shape)   
             # Calculate mean and variance
             y = y.permute(1, 0, 2, 3)  # NCHW -> CNHW
+            print("After permute y: {}", y.shape)
             y = y.contiguous().view(self.conv_module.out_channels, -1)  # CNHW -> C,NHW
+            print("After view y: {}", y.shape)
             mean = y.mean(1).detach()
             var = y.var(1).detach()
-
+            print("Mean: {}, Var: {}", mean, var)
             # Update running mean and variance
             self.bn_module.running_mean = \
                 (1 - self.bn_module.momentum) * self.bn_module.running_mean + \
@@ -698,26 +836,28 @@ class QConvMaxPoolBNReLU(nn.Module):
                 (1 - self.bn_module.momentum) * self.bn_module.running_var + \
                 self.bn_module.momentum * var
         else:
+            print("Calculating mean and var")
             mean = Variable(self.bn_module.running_mean)
             var = Variable(self.bn_module.running_var)
+            print("Mean: {}, Var: {}", mean.shape, var.shape)
 
         std = torch.sqrt(var + self.bn_module.eps)
-
+        print("### fold_bn ###")
         weight, bias = self.fold_bn(mean, std)
 
         self.qw.update(weight.data)
-
+        print("Pre conv x: {}", x.shape)
         x = F.conv2d(x, FakeQuantize.apply(weight, self.qw), bias, 
                 stride=self.conv_module.stride,
                 padding=self.conv_module.padding, dilation=self.conv_module.dilation, 
                 groups=self.conv_module.groups)
-
+        print("After conv x: {}", x.shape)
         x = F.relu(x)  # ReLU activation
-
+        print("After relu x: {}", x.shape)
         if hasattr(self, 'qo'):
             self.qo.update(x)
             x = FakeQuantize.apply(x, self.qo)
-
+            print("After fake x: {}", x.shape)
         return x
 
     def quantize_inference(self, x):

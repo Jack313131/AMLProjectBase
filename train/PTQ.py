@@ -36,6 +36,39 @@ def direct_quantize(args, model, test_loader):
     print('direct quantization finish')
 
 
+# def full_inference(args, model, test_loader):
+#     intersection = 0
+#     union = 0
+#     iouEvalVal = iouEval(NUM_CLASSES)
+#     for i, (data, target) in enumerate(test_loader, 1):
+#         if args.cuda:
+#             data = data.cuda()
+#             target = target.cuda()
+#         data = Variable(data)
+#         with torch.no_grad():
+#             output = model(data)
+#         # finalOutput = output.max(1)[1].unsqueeze(1)
+#         # iouEvalVal.addBatch(finalOutput.data, target)
+#         pred = output.argmax(dim=1)
+#         intersection += torch.logical_and(pred, target).sum().item()
+#         union += torch.logical_or(pred, target).sum().item()
+#     miou = intersection / union
+#     iouVal = 0
+#     iouEvalVal = iouEval(NUM_CLASSES)
+#     iouVal, iou_classes = iouEvalVal.getIoU()
+#     iouStr = getColorEntry(iouVal) + '{:0.2f}'.format(iouVal * 100) + '\033[0m'
+#     print("EPOCH IoU on VAL set: ", iouStr, "%")
+
+#         # remember best valIoU and save checkpoint
+#     if iouVal == 0:
+#         current_acc = 0
+#     else:
+#         current_acc = iouVal
+
+#     print(f"Current Acc : {current_acc}")
+#     print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
+#     return miou
+
 def full_inference(args, model, test_loader):
     intersection = 0
     union = 0
@@ -49,9 +82,9 @@ def full_inference(args, model, test_loader):
             output = model(data)
         # finalOutput = output.max(1)[1].unsqueeze(1)
         # iouEvalVal.addBatch(finalOutput.data, target)
-        pred = output.argmax(dim=1)
-        intersection += torch.logical_and(pred, target).sum().item()
-        union += torch.logical_or(pred, target).sum().item()
+            pred = output.argmax(dim=1)
+            intersection += torch.logical_and(pred, target).sum().item()
+            union += torch.logical_or(pred, target).sum().item()
     miou = intersection / union
     print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
     return miou
@@ -170,7 +203,7 @@ def main(args):
     #     model.load_state_dict(torch.load(load_quant_model_file))
     #     print("Successfully load quantized model %s" % load_quant_model_file)
     
-
+    print("### Direct quantize ###")
     direct_quantize(args, model.module, test_loader)
 
     torch.save(model.state_dict(), save_file)
