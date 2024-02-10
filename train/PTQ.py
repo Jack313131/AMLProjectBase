@@ -99,6 +99,7 @@ def quantize_inference(args, model, test_loader):
             target = target.cuda()
         data = Variable(data)
         with torch.no_grad():
+            print("Data: ", data.shape)
             output = model.quantize_inference(data)
             pred = output.argmax(dim=1)
             intersection += torch.logical_and(pred, target).sum().item()
@@ -230,7 +231,7 @@ def main(args):
     # model.cpu()
     # print(model.qconv1.M.device)
 
-    quantize_inference(model.module, test_loader)
+    quantize_inference(args, model.module, test_loader)
 
     ################# Provato ad utilizzare il metodo quantize_fx => da problemi nella funzione fx.symbolic_trace
     # m = copy.deepcopy(model)
