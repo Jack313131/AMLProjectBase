@@ -25,8 +25,8 @@ from dataset import VOC12, cityscapes
 from transform import Relabel, ToLabel, Colorize
 from visualize import Dashboard
 
-from erfnet import non_bottleneck_1d,DownsamplerBlock
-
+from erfnet import non_bottleneck_1d, DownsamplerBlock
+from torch.cuda.amp import GradScaler, autocast
 import importlib
 from iouEval import iouEval, getColorEntry
 
@@ -68,7 +68,8 @@ class MyCoTransform(object):
         if (self.augment):
             # Random hflip
             hflip = random.random()  # define randomly a value to chose if flip horizontal both images or not (specchiare l'immagine)
-            if (hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
+            if (
+                    hflip < 0.5):  # 50% di ruotare l'immagine e 50% no, per aumeentare randomicità nei dati. Per cui alcuni sono specchiati nella fase di augmentation altri no
                 input = input.transpose(Image.FLIP_LEFT_RIGHT)
                 target = target.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -122,11 +123,16 @@ class CrossEntropyLoss2d(torch.nn.Module):
         # Nella segmentazione delle immagini, hai una mappa di etichettatura (o immagine target) dove ogni pixel ha una etichetta di classe assegnata. La NLLLoss in 2D calcola la perdita per ogni pixel individualmente. Per un dato pixel, la perdita è il negativo del logaritmo della probabilità predetta per la classe vera di quel pixel. Matematicamente, per un pixel con classe vera c,
         # se pc è la probabilità logaritmica predetta per quella classe, la perdita per quel pixel è -pc
         if ignores_index is not None:
-            self.loss = torch.nn.NLLLoss(weight,ignore_index=ignores_index)
+            self.loss = torch.nn.NLLLoss(weight, ignore_index=ignores_index)
         else:
             self.loss = torch.nn.NLLLoss(weight)
 
     def forward(self, outputs, targets):
+
+        #targets = targets.long()
+
+        # Converti i outputs in float32 per la computazione della loss
+        #outputs = outputs.float()
 
         # if targets.dtype != torch.long:
         # targets = targets.long()
@@ -146,7 +152,7 @@ class CrossEntropyLoss2d(torch.nn.Module):
 def train(args, model, enc=False):
     best_acc = 0
 
-    #torch.distributed.init_process_group(
+    # torch.distributed.init_process_group(
     #    backend='nccl', init_method='tcp://localhost:58472',
     #    world_size=torch.cuda.device_count(), rank=0)
 
@@ -213,8 +219,8 @@ def train(args, model, enc=False):
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
     # classi per gestire augmentation per il dataset di training e quello di validation
-    co_transform = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
-    co_transform_val = MyCoTransform(enc, augment=False, height=args.height,backbone=args.backbone)  # 1024)
+    co_transform = MyCoTransform(enc, augment=False, height=args.height, backbone=args.backbone)  # 1024)
+    co_transform_val = MyCoTransform(enc, augment=False, height=args.height, backbone=args.backbone)  # 1024)
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
 
@@ -254,7 +260,7 @@ def train(args, model, enc=False):
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
     optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
-    #optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
+    # optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
     # Uno scheduler del learning rate è utilizzato per modificare il learning rate durante il processo di addestramento, secondo una certa politica.
@@ -273,7 +279,8 @@ def train(args, model, enc=False):
     # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20, mode='triangular', cycle_momentum=False)  # scheduler 3
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20,
+                                                  mode='triangular', cycle_momentum=False)  # scheduler 3
 
     start_epoch = 1
     if args.resume:
@@ -287,7 +294,7 @@ def train(args, model, enc=False):
             filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
         checkpoint = torch.load(filenameCheckpoint)
         start_epoch = checkpoint['epoch']
-        if args.pruning >0 and 'model' in checkpoint:
+        if args.pruning > 0 and 'model' in checkpoint:
             model = checkpoint['model']
         elif "state_dict" in checkpoint and not 'model' in checkpoint:
             model.load_state_dict(checkpoint['state_dict'])
@@ -302,13 +309,14 @@ def train(args, model, enc=False):
                 if args.typePruning == "unstructured":
                     total = module.weight.nelement()
                     zeros = torch.sum(module.weight == 0)
-                    print(f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
+                    print(
+                        f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
                 if args.typePruning == "structured" and hasattr(module, 'weight'):
                     print(f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
-            #flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal, modelPruning=model)
-            #print("\n\n Flops & Params difference : \n")
-            #print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}\n")
-            #print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+            # flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal, modelPruning=model)
+            # print("\n\n Flops & Params difference : \n")
+            # print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}\n")
+            # print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
         del checkpoint
         gc.collect()
 
@@ -320,19 +328,20 @@ def train(args, model, enc=False):
 
         def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
 
-            #for key in state_dict:
-                #print(f"{key}: {state_dict[key].dtype}")
+            # for key in state_dict:
+            # print(f"{key}: {state_dict[key].dtype}")
 
             # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
             own_state = model.state_dict()
             # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
             for name, param in state_dict.items():
-                #name = name.replace(".qconv.M","")
+                # name = name.replace(".qconv.M","")
                 if name not in own_state:
                     # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
                     # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
                     if name.startswith("module."):
-                        own_state[name.split("module.")[-1]].copy_(param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+                        own_state[name.split("module.")[-1]].copy_(
+                            param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
                     else:
                         print(name, " not loaded")
                         continue
@@ -356,16 +365,16 @@ def train(args, model, enc=False):
         board = Dashboard(args.port)
 
     if args.freezingBackbone:
-      print("Freezing the backbone ... ")
-      # Congela i pesi dell'encoder
-      if isinstance(model, torch.nn.DataParallel):
-        for param in model.module.encoder.parameters():
-          param.requires_grad = False
-      else:
-        for param in model.encoder.parameters():
-          param.requires_grad = False
+        print("Freezing the backbone ... ")
+        # Congela i pesi dell'encoder
+        if isinstance(model, torch.nn.DataParallel):
+            for param in model.module.encoder.parameters():
+                param.requires_grad = False
+        else:
+            for param in model.encoder.parameters():
+                param.requires_grad = False
     else:
-      print("Not freezing the backbone ... ")
+        print("Not freezing the backbone ... ")
 
     pruning_setting_path = savedir + "/pruning_setting.txt"
     if args.pruning > 0 and not args.resume:
@@ -377,52 +386,65 @@ def train(args, model, enc=False):
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 with open(pruning_setting_path, 'w') as file:
                     file.write(f"Model set to {args.typeQuantization} ... \n")
-                    file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
+                    file.write(
+                        f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.encoder.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
                                     textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
                                     if hasattr(layer, 'bias') and layer.bias is not None:
                                         prune.l1_unstructured(module, name='bais', amount=args.pruning)
-                                        textFile = textFile + " and bias"
-                                    with open(pruning_setting_path, 'a') as file:
-                                        file.write(textFile+"\n")
-                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
-                            match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
-                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    if hasattr(layer, 'bias') and layer.bias is not None:
-                                        prune.l1_unstructured(module, name='bais', amount=args.pruning)
-                                        textFile = textFile + " and bias"
-                                    with open(pruning_setting_path, 'a') as file:
-                                        file.write(textFile+"\n")
-                else:
-                    for name,module in model.encoder.named_modules():
-                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
-                            match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
-                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
-                                    if hasattr(layer, 'bias') and layer.bias is not None:
-                                        prune.l1_unstructured(module, name='bias')
                                         textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
                                         file.write(textFile + "\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
                                     textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
                                     if hasattr(layer, 'bias') and layer.bias is not None:
                                         prune.l1_unstructured(module, name='bais', amount=args.pruning)
+                                        textFile = textFile + " and bias"
+                                    with open(pruning_setting_path, 'a') as file:
+                                        file.write(textFile + "\n")
+                else:
+                    for name, module in model.encoder.named_modules():
+                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(layer, name='bias')
+                                        textFile = textFile + " and bias"
+                                    with open(pruning_setting_path, 'a') as file:
+                                        file.write(textFile + "\n")
+                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and str(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(layer, name='bais', amount=args.pruning)
                                         textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
                                         file.write(textFile + "\n")
@@ -431,58 +453,66 @@ def train(args, model, enc=False):
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 with open(pruning_setting_path, 'w') as file:
                     file.write(f"Model set to {args.typeQuantization} ... \n")
-                    file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
+                    file.write(
+                        f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.ln_structured(module, name='weight', amount=args.pruning, n = args.typeNorm, dim=0)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,
+                                                        dim=0)
                                     textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
-                                    if hasattr(layer, 'bias') and layer.bias is not None:
-                                        prune.ln_structured(module, name='bais', amount=args.pruning, n=args.typeNorm,dim=0)
-                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                            file.write(textFile+"\n")
+                                        file.write(textFile + "\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,dim=0)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,
+                                                        dim=0)
                                     textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
-                                    if hasattr(layer, 'bias') and layer.bias is not None:
-                                        prune.ln_structured(layer, name='bias', amount=args.pruning, n=args.typeNorm,dim=0)
-                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                            file.write(textFile+"\n")
+                                        file.write(textFile + "\n")
                 else:
                     for name, module in model.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,dim=0)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,
+                                                        dim=0)
                                     textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(textFile+"\n")
+                                        file.write(textFile + "\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
-                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
-                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm, dim=0)
+                            if len(args.listNumLayerPruning) == 0 or (
+                                    match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
+                                                         if any(
+                                            substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,
+                                                        dim=0)
                                     textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
-                                    if hasattr(layer, 'bias') and layer.bias is not None:
-                                        prune.ln_structured(layer, name='bias', amount=args.pruning, n=args.typeNorm,dim=0)
-                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(textFile+"\n")
+                                        file.write(textFile + "\n")
 
-                #flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning =  myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=model)
-                #with open(pruning_setting_path, 'a') as file:
-                    #file.write("\n\n Flops & Params difference : \n")
-                    #file.write(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}\n")
-                    #file.write(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+                # flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning =  myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=model)
+                # with open(pruning_setting_path, 'a') as file:
+                # file.write("\n\n Flops & Params difference : \n")
+                # file.write(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}\n")
+                # file.write(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
             else:
                 raise ValueError("No type of pruning specified between {unstructured-structured}")
         elif "decoder" in args.moduleErfnetPruning:
@@ -492,23 +522,23 @@ def train(args, model, enc=False):
 
         with open(pruning_setting_path, 'a') as file:
             file.write(f"\n\nPruning Results : \n")
-        for name, module in (model.module.named_modules() if isinstance(model, torch.nn.DataParallel) else model.named_modules()):
-            if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):
-                if args.typePruning ==  "unstructured" :
+        for name, module in (
+        model.module.named_modules() if isinstance(model, torch.nn.DataParallel) else model.named_modules()):
+            if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.BatchNorm2d):
+                if args.typePruning == "unstructured":
                     total = module.weight.nelement()
                     zeros = torch.sum(module.weight == 0)
                     with open(pruning_setting_path, 'a') as file:
-                        file.write(f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights\n")
+                        file.write(
+                            f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
                 if args.typePruning == "structured" and hasattr(module, 'weight'):
                     with open(pruning_setting_path, 'a') as file:
-                        file.write(f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
+                        file.write(
+                            f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
 
-    if args.typeQuantization == "float16":
-        model = model.half()
+    # modelTest = myutils.remove_mask_from_model_with_pruning(model,args)
 
-    #modelTest = myutils.remove_mask_from_model_with_pruning(model,args)
-
-    #for key in model.state_dict():
+    # for key in model.state_dict():
     #    print(f"{key}: {model.state_dict()[key].dtype}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
@@ -546,6 +576,11 @@ def train(args, model, enc=False):
         for step, (images, labels) in enumerate(loader):
 
             start_time = time.time()
+
+            # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
+            # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
+            optimizer.zero_grad()
+
             # print (labels.size())
             # print (np.unique(labels.numpy()))
             # print("labels: ", np.unique(labels[0].numpy()))
@@ -553,9 +588,6 @@ def train(args, model, enc=False):
             if args.cuda:
                 images = images.cuda()
                 labels = labels.cuda()
-
-            if args.typeQuantization == "float16":
-                images = images.half()
 
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
@@ -573,11 +605,6 @@ def train(args, model, enc=False):
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
 
-            # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
-            # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
-            # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
-            optimizer.zero_grad()
-
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
@@ -585,13 +612,13 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
 
             # stai essenzialmente dicendo allo scheduler di calcolare e impostare il nuovo learning rate basandosi sull'epoca corrente.
-            # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
+                # La funzione lambda o la logica definita nello scheduler determina come il learning rate dovrebbe cambiare a quella specifica epoca.
             scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
@@ -669,9 +696,9 @@ def train(args, model, enc=False):
                 epoch_loss_val.append(loss.item())
                 time_val.append(time.time() - start_time)
 
-                #if step == 0:
-                    #flops, params = profile(model, inputs=(inputs,))
-                    #print(f"FLOPS: {flops}, Parametri: {params}")
+                # if step == 0:
+                # flops, params = profile(model, inputs=(inputs,))
+                # print(f"FLOPS: {flops}, Parametri: {params}")
 
                 # Add batch to calculate TP, FP and FN for iou estimation
                 if (doIouVal):
@@ -724,7 +751,7 @@ def train(args, model, enc=False):
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
-            'model' : model,
+            'model': model,
             'state_dict': model.state_dict(),
             'best_acc': best_acc,
             'optimizer': optimizer.state_dict(),
@@ -742,8 +769,8 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filename)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
-            #if args.pruning > 0 :
-                #model = myutils.remove_mask_from_model_with_pruning(model,args)
+            # if args.pruning > 0 :
+            # model = myutils.remove_mask_from_model_with_pruning(model,args)
             torch.save(model.state_dict(), filenamebest)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
@@ -783,10 +810,10 @@ def train(args, model, enc=False):
 
                     namePruning = namePruning + numberLayer
 
-            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (namePruning if args.pruning else "")
-            saveOnDrive(epoch = epoch , model = modelFilenameDrive, pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/")
-
-
+            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (
+                namePruning if args.pruning else "")
+            saveOnDrive(epoch=epoch, model=modelFilenameDrive,
+                        pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/")
 
     return (model)  # return model (convenience for encoder-decoder training)
 
@@ -797,16 +824,17 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
         print("Saving model as best")
         torch.save(state, filenameBest)
 
-def saveOnDrive(epoch , model , pathOriginal):
+
+def saveOnDrive(epoch, model, pathOriginal):
     if not os.path.isdir(pathOriginal):
         print(f"Path Original is wrong : {pathOriginal}")
     drive = "/content/drive/MyDrive/"
     if os.path.isdir(drive):
-        if not os.path.isdir(drive+f"AML/"):
-            os.mkdir(drive+f"AML/")
+        if not os.path.isdir(drive + f"AML/"):
+            os.mkdir(drive + f"AML/")
         if not os.path.exists(drive + f"AML/{model}/"):
             os.mkdir(drive + f"AML/{model}/")
-        shutil.copy2(pathOriginal+"/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
+        shutil.copy2(pathOriginal + "/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
         shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
         shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
         shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
@@ -816,6 +844,7 @@ def saveOnDrive(epoch , model , pathOriginal):
         print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
     else:
         print("Drive is not linked ...")
+
 
 def main(args):
     savedir = f'../save/{args.savedir}'
@@ -832,7 +861,7 @@ def main(args):
     if "BiSeNet" in args.model:
         model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
     if "erfnet" in args.model and args.backbone:
-        model = model_file.Net(NUM_CLASSES,encoder=None, batch_size = args.batch_size,backbone = args.backbone)
+        model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size, backbone=args.backbone)
     if "erfnet" in args.model and not args.backbone:
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
@@ -907,12 +936,12 @@ def main(args):
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
         if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
-            pretrainedEnc = next(model.children())
+            pretrainedEnc = next(model.children()).encoder
         if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
-            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size,backbone=args.backbone)
+            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size, backbone=args.backbone)
         if args.model.casefold().replace(" ", "") == "BiSeNet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-        if args.model.casefold().replace(" ", "") == "erfnet" :
+        if args.model.casefold().replace(" ", "") == "erfnet":
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
@@ -935,30 +964,32 @@ if __name__ == '__main__':
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=6)
     parser.add_argument('--steps-loss', type=int, default=50)
-    parser.add_argument('--steps-plot', type=int,default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
+    parser.add_argument('--steps-plot', type=int,
+                        default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
-    parser.add_argument('--visualize',action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
+    parser.add_argument('--visualize',
+                        action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
     parser.add_argument('--iouTrain', action='store_true',  # boolean to compute IoU evaluation  in the training phase
                         default=False)  # recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true',
                         default=True)  # boolean to compute IoU evaluation also in the validation phase
     parser.add_argument('--resume', action='store_true')  # Use this flag to load last checkpoint for training
     parser.add_argument('--backbone', type=str, default=None)
-    parser.add_argument("--freezingBackbone",action='store_true')
-    parser.add_argument("--saveCheckpointDriveAfterNumEpoch",type=int, default=1)
+    parser.add_argument("--freezingBackbone", action='store_true')
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch", type=int, default=1)
     parser.add_argument("--pruning", type=float, default=0.5)
     parser.add_argument("--typePruning", type=str, default="unstructured")
     parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
-    parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d','DownsamplerBlock'])
+    parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d', 'DownsamplerBlock'])
     parser.add_argument("--listWeight", nargs='+', default=['weight'])
-    parser.add_argument("--typeNorm", type=int , default=None)
-    parser.add_argument("--listNumLayerPruning" ,nargs='+', help='',default=[])
-    parser.add_argument("--moduleErfnetPruning" ,nargs='+', help='Module List',default=[])
+    parser.add_argument("--typeNorm", type=int, default=None)
+    parser.add_argument("--listNumLayerPruning", nargs='+', help='', default=[])
+    parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
     parser.add_argument('--loadWeights', default="../trained_models/erfnet_pretrained.pth")
-    parser.add_argument("--typeQuantization", type=str, default="float32" )
+    parser.add_argument("--typeQuantization", type=str, default="float32")
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
