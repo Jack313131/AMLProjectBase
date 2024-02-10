@@ -299,23 +299,35 @@ def train(args, model, enc=False):
         if args.pruning > 0:
             print(f"Pruning Applied :")
             for name, module in model.module.named_modules():
-                if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):  # o il tipo di layer che hai pruned
+                if args.typePruning == "unstructured":
                     total = module.weight.nelement()
                     zeros = torch.sum(module.weight == 0)
-                    print(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights")
+                    print(f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
+                if args.typePruning == "structured" and hasattr(module, 'weight'):
+                    print(f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
+            #flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal, modelPruning=model)
+            #print("\n\n Flops & Params difference : \n")
+            #print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}\n")
+            #print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
         del checkpoint
         gc.collect()
 
     if not args.resume and args.backbone:
         model.loadInitialWeigth("../save/checkpoint_barlowTwins.pth")
     if not args.resume and args.pruning > 0:
-        print("Loading weigths from erfnet_pretrained.pth ... ")
+
+        print(f"Loading weigths from {args.loadWeights} ... ")
 
         def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
+
+            #for key in state_dict:
+                #print(f"{key}: {state_dict[key].dtype}")
+
             # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
             own_state = model.state_dict()
             # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
             for name, param in state_dict.items():
+                #name = name.replace(".qconv.M","")
                 if name not in own_state:
                     # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
                     # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
@@ -334,8 +346,9 @@ def train(args, model, enc=False):
         # torch.load è una funzione in PyTorch che carica un oggetto salvato da un file. Questo oggetto può essere qualsiasi cosa che sia stata salvata precedentemente con torch.save, come un modello, un dizionario di stato del modello, un tensore, ecc.
         # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
         # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
-        model = load_my_state_dict(model, torch.load("../trained_models/erfnet_pretrained.pth", map_location=lambda storage, loc: storage))
+        model = load_my_state_dict(model, torch.load(args.loadWeights, map_location=lambda storage, loc: storage))
         print("Model and weights LOADED successfully")
+        print(f"Model has the variable in the format : {args.typeQuantization}")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -356,11 +369,14 @@ def train(args, model, enc=False):
 
     pruning_setting_path = savedir + "/pruning_setting.txt"
     if args.pruning > 0 and not args.resume:
+        if args.typeQuantization != "float32":
+            print(f"Model set to {args.typeQuantization}")
         if "encoder" in args.moduleErfnetPruning:
             if args.typePruning.casefold().replace(" ", "") == "unstructured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... ")
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 with open(pruning_setting_path, 'w') as file:
+                    file.write(f"Model set to {args.typeQuantization} ... \n")
                     file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.encoder.named_modules():
@@ -368,55 +384,105 @@ def train(args, model, enc=False):
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(module, name='bais', amount=args.pruning)
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                        file.write(textFile+"\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(module, name='bais', amount=args.pruning)
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                        file.write(textFile+"\n")
                 else:
                     for name,module in model.encoder.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(module, name='bias')
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                        file.write(textFile + "\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) ==0 or ( match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.l1_unstructured(module, name='bais', amount=args.pruning)
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                        file.write(textFile + "\n")
             elif args.typePruning.casefold().replace(" ", "") == "structured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning})  with value : {args.pruning} ... ")
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
+                with open(pruning_setting_path, 'w') as file:
+                    file.write(f"Model set to {args.typeQuantization} ... \n")
+                    file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
                     for name, module in model.module.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    prune.ln_structured(module, name='weight', amount=args.pruning, n = args.typeNorm, dim=0)
+                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.ln_structured(module, name='bais', amount=args.pruning, n=args.typeNorm,dim=0)
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write(f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                            file.write(textFile+"\n")
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any( substring in name2 for substring in args.listInnerLayerPruning)]:
-                                    prune.l1_unstructured(layer, name='weight', amount=args.pruning)
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,dim=0)
+                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.ln_structured(layer, name='bias', amount=args.pruning, n=args.typeNorm,dim=0)
+                                        textFile = textFile + " and bias"
                                     with open(pruning_setting_path, 'a') as file:
-                                        file.write( f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer}\n")
+                                            file.write(textFile+"\n")
                 else:
-                    # Il modello non è DataParallel, procedi normalmente
                     for name, module in model.named_modules():
-                        print(f"Name: {name}, Module: {module}")
+                        if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm,dim=0)
+                                    textFile = f"Module : non_bottleneck_1d , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    with open(pruning_setting_path, 'a') as file:
+                                        file.write(textFile+"\n")
+                        if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
+                            match = re.search(r'\d+', name)
+                            if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
+                                for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
+                                    prune.ln_structured(layer, name='weight', amount=args.pruning, n=args.typeNorm, dim=0)
+                                    textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
+                                    if hasattr(layer, 'bias') and layer.bias is not None:
+                                        prune.ln_structured(layer, name='bias', amount=args.pruning, n=args.typeNorm,dim=0)
+                                        textFile = textFile + " and bias"
+                                    with open(pruning_setting_path, 'a') as file:
+                                        file.write(textFile+"\n")
+
+                #flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning =  myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=model)
+                #with open(pruning_setting_path, 'a') as file:
+                    #file.write("\n\n Flops & Params difference : \n")
+                    #file.write(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}\n")
+                    #file.write(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
             else:
                 raise ValueError("No type of pruning specified between {unstructured-structured}")
         elif "decoder" in args.moduleErfnetPruning:
@@ -426,13 +492,24 @@ def train(args, model, enc=False):
 
         with open(pruning_setting_path, 'a') as file:
             file.write(f"\n\nPruning Results : \n")
-        for name, module in model.module.named_modules():
-            if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):  # o il tipo di layer che hai pruned
-                total = module.weight.nelement()
-                zeros = torch.sum(module.weight == 0)
-                with open(pruning_setting_path, 'a') as file:
-                    file.write(f"Name {name} Applied Pruning Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights\n")
+        for name, module in (model.module.named_modules() if isinstance(model, torch.nn.DataParallel) else model.named_modules()):
+            if isinstance(module, torch.nn.Conv2d) or isinstance(module,torch.nn.BatchNorm2d):
+                if args.typePruning ==  "unstructured" :
+                    total = module.weight.nelement()
+                    zeros = torch.sum(module.weight == 0)
+                    with open(pruning_setting_path, 'a') as file:
+                        file.write(f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total)*100:.2f}% di zero weights\n")
+                if args.typePruning == "structured" and hasattr(module, 'weight'):
+                    with open(pruning_setting_path, 'a') as file:
+                        file.write(f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
 
+    if args.typeQuantization == "float16":
+        model = model.half()
+
+    #modelTest = myutils.remove_mask_from_model_with_pruning(model,args)
+
+    #for key in model.state_dict():
+    #    print(f"{key}: {model.state_dict()[key].dtype}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -476,6 +553,9 @@ def train(args, model, enc=False):
             if args.cuda:
                 images = images.cuda()
                 labels = labels.cuda()
+
+            if args.typeQuantization == "float16":
+                images = images.half()
 
             # Variable era una classe fondamentale utilizzata per incapsulare i tensori e fornire la capacità di calcolo automatico del gradiente (autograd).
             # Quando si avvolgeva un tensore in un oggetto Variable, si permetteva a PyTorch di tracciare automaticamente tutte le operazioni eseguite su di esso e
@@ -662,6 +742,8 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filename)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
+            #if args.pruning > 0 :
+                #model = myutils.remove_mask_from_model_with_pruning(model,args)
             torch.save(model.state_dict(), filenamebest)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
@@ -678,7 +760,9 @@ def train(args, model, enc=False):
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
             if args.pruning > 0:
-                namePruning = f"PruningType_{args.typePruning}_Value_{args.pruning}"
+                quantized = f"_Quantized_{args.typeQuantization}"
+                typeNorm = f"_Norm_{args.typeNorm}" if args.typeNorm else ""
+                namePruning = f"PruningType_{args.typePruning}{typeNorm}_Value_{args.pruning}{quantized}"
                 if len(args.moduleErfnetPruning) > 0:
                     namePruning = namePruning + "_Module"
                     for module in args.moduleErfnetPruning:
@@ -823,7 +907,7 @@ def main(args):
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
         if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
-            pretrainedEnc = next(model.children()).encoder
+            pretrainedEnc = next(model.children())
         if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
             model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size,backbone=args.backbone)
         if args.model.casefold().replace(" ", "") == "BiSeNet":
@@ -840,7 +924,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true',
-                        default=False)  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
+                        default=torch.cuda.is_available())  # NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
 
@@ -851,15 +935,12 @@ if __name__ == '__main__':
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=6)
     parser.add_argument('--steps-loss', type=int, default=50)
-    parser.add_argument('--steps-plot', type=int,
-                        default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
+    parser.add_argument('--steps-plot', type=int,default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
-    parser.add_argument('--visualize',
-                        action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
-
+    parser.add_argument('--visualize',action='store_true')  # variabile per determinare se la visualizzazione è attivata o meno.
     parser.add_argument('--iouTrain', action='store_true',  # boolean to compute IoU evaluation  in the training phase
                         default=False)  # recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true',
@@ -872,8 +953,13 @@ if __name__ == '__main__':
     parser.add_argument("--typePruning", type=str, default="unstructured")
     parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
     parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d','DownsamplerBlock'])
+    parser.add_argument("--listWeight", nargs='+', default=['weight'])
+    parser.add_argument("--typeNorm", type=int , default=None)
     parser.add_argument("--listNumLayerPruning" ,nargs='+', help='',default=[])
     parser.add_argument("--moduleErfnetPruning" ,nargs='+', help='Module List',default=[])
+    parser.add_argument('--loadWeights', default="../trained_models/erfnet_pretrained.pth")
+    parser.add_argument("--typeQuantization", type=str, default="float32" )
+
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
 
