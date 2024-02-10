@@ -33,7 +33,7 @@ def direct_quantize(args, model, test_loader):
         output = model.quantize_forward(data)
         if i % 500 == 0:
             break
-    print('direct quantization finish')
+    print('direct quantization finished')
 
 
 # def full_inference(args, model, test_loader):
@@ -73,6 +73,8 @@ def full_inference(args, model, test_loader):
     intersection = 0
     union = 0
     iouEvalVal = iouEval(NUM_CLASSES)
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
     for i, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data = data.cuda()
@@ -86,26 +88,28 @@ def full_inference(args, model, test_loader):
             intersection += torch.logical_and(pred, target).sum().item()
             union += torch.logical_or(pred, target).sum().item()
     miou = intersection / union
-    print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
+    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, flops, num_params))
     return miou
 
 def quantize_inference(args, model, test_loader):
     correct = 0
     intersection = 0
     union = 0
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
     for i, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data = data.cuda()
             target = target.cuda()
         data = Variable(data)
         with torch.no_grad():
-            print("Data: ", data.shape)
+            # print("Data: ", data.shape)
             output = model.quantize_inference(data)
             pred = output.argmax(dim=1)
             intersection += torch.logical_and(pred, target).sum().item()
             union += torch.logical_or(pred, target).sum().item()
     miou = intersection / union
-    print('\nTest set: mIoU: {:.2f}%\n'.format(miou * 100))
+    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, flops, num_params))
     return miou
     #print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
 
