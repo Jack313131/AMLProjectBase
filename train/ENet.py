@@ -16,10 +16,10 @@
 
 import torch
 import torch.nn as nn
-from InitialBlock import InitialBlock
-from RDDNeck import RDDNeck
-from UBNeck import UBNeck
-from ASNeck import ASNeck
+from train.ENet.InitialBlock import InitialBlock
+from train.ENet.RDDNeck import RDDNeck
+from train.ENet.UBNeck import UBNeck
+from train.ENet.ASNeck import ASNeck
 
 class ENet(nn.Module):
     def __init__(self, C):
