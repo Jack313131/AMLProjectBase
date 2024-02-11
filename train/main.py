@@ -134,6 +134,30 @@ class CrossEntropyLoss2d(torch.nn.Module):
         return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)  # + reg_term
 
 
+def get_class_weights(loader, num_classes, c=1.02):
+    '''
+    This class return the class weights for each class
+    
+    Arguments:
+    - loader : The generator object which return all the labels at one iteration
+               Do Note: That this class expects all the labels to be returned in
+               one iteration
+
+    - num_classes : The number of classes
+
+    Return:
+    - class_weights : An array equal in length to the number of classes
+                      containing the class weights for each class
+    '''
+
+    _, (_, labels) = next(loader)
+    all_labels = labels.flatten()
+    each_class = np.bincount(all_labels, minlength=num_classes)
+    prospensity_score = each_class / len(all_labels)
+    class_weights = 1 / (np.log(c + prospensity_score))
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+    return class_weights_tensor
+
 def train(args, model, enc=False):
     best_acc = 0
 
@@ -153,49 +177,7 @@ def train(args, model, enc=False):
     # Questo aiuta a garantire che il modello non ignori le classi meno frequenti. Quando si calcola la perdita per una previsione, il valore della perdita viene moltiplicato per il peso associato alla classe vera di quel dato campione. Quindi, errori in classi con peso maggiore contribuiscono di più alla perdita totale,
     # il che spinge il modello a prestare maggiore attenzione a queste classi durante l'addestramento.
     # Se la classe "pedone" è rara nel set di dati ma è molto importante riconoscerla correttamente (ad esempio, per motivi di sicurezza nella guida autonoma), assegnandole un peso maggiore nella funzione di perdita, si può incentivare il modello a migliorare la sua capacità di rilevare pedoni, nonostante la loro relativa rarità nel set di dati.
-    weight = torch.ones(NUM_CLASSES)
-    if (enc):
-        weight[0] = 2.3653597831726
-        weight[1] = 4.4237880706787
-        weight[2] = 2.9691488742828
-        weight[3] = 5.3442072868347
-        weight[4] = 5.2983593940735
-        weight[5] = 5.2275490760803
-        weight[6] = 5.4394111633301
-        weight[7] = 5.3659925460815
-        weight[8] = 3.4170460700989
-        weight[9] = 5.2414722442627
-        weight[10] = 4.7376127243042
-        weight[11] = 5.2286224365234
-        weight[12] = 5.455126285553
-        weight[13] = 4.3019247055054
-        weight[14] = 5.4264230728149
-        weight[15] = 5.4331531524658
-        weight[16] = 5.433765411377
-        weight[17] = 5.4631009101868
-        weight[18] = 5.3947434425354
-    else:
-        weight[0] = 2.8149201869965
-        weight[1] = 6.9850029945374
-        weight[2] = 3.7890393733978
-        weight[3] = 9.9428062438965
-        weight[4] = 9.7702074050903
-        weight[5] = 9.5110931396484
-        weight[6] = 10.311357498169
-        weight[7] = 10.026463508606
-        weight[8] = 4.6323022842407
-        weight[9] = 9.5608062744141
-        weight[10] = 7.8698215484619
-        weight[11] = 9.5168733596802
-        weight[12] = 10.373730659485
-        weight[13] = 6.6616044044495
-        weight[14] = 10.260489463806
-        weight[15] = 10.287888526917
-        weight[16] = 10.289801597595
-        weight[17] = 10.405355453491
-        weight[18] = 10.138095855713
-
-    weight[19] = 0
+    
 
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
@@ -207,6 +189,53 @@ def train(args, model, enc=False):
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+
+    print ('[INFO]Starting to define the class weights...')
+    weight = get_class_weights(enumerate(loader), NUM_CLASSES)
+    print ('[INFO]Fetched all class weights successfully!')
+    # weight = torch.ones(NUM_CLASSES)
+    # if (enc):
+    #     weight[0] = 2.3653597831726
+    #     weight[1] = 4.4237880706787
+    #     weight[2] = 2.9691488742828
+    #     weight[3] = 5.3442072868347
+    #     weight[4] = 5.2983593940735
+    #     weight[5] = 5.2275490760803
+    #     weight[6] = 5.4394111633301
+    #     weight[7] = 5.3659925460815
+    #     weight[8] = 3.4170460700989
+    #     weight[9] = 5.2414722442627
+    #     weight[10] = 4.7376127243042
+    #     weight[11] = 5.2286224365234
+    #     weight[12] = 5.455126285553
+    #     weight[13] = 4.3019247055054
+    #     weight[14] = 5.4264230728149
+    #     weight[15] = 5.4331531524658
+    #     weight[16] = 5.433765411377
+    #     weight[17] = 5.4631009101868
+    #     weight[18] = 5.3947434425354
+    # else:
+    #     weight[0] = 2.8149201869965
+    #     weight[1] = 6.9850029945374
+    #     weight[2] = 3.7890393733978
+    #     weight[3] = 9.9428062438965
+    #     weight[4] = 9.7702074050903
+    #     weight[5] = 9.5110931396484
+    #     weight[6] = 10.311357498169
+    #     weight[7] = 10.026463508606
+    #     weight[8] = 4.6323022842407
+    #     weight[9] = 9.5608062744141
+    #     weight[10] = 7.8698215484619
+    #     weight[11] = 9.5168733596802
+    #     weight[12] = 10.373730659485
+    #     weight[13] = 6.6616044044495
+    #     weight[14] = 10.260489463806
+    #     weight[15] = 10.287888526917
+    #     weight[16] = 10.289801597595
+    #     weight[17] = 10.405355453491
+    #     weight[18] = 10.138095855713
+
+    # weight[19] = 0
 
     if args.cuda:
         weight = weight.cuda()
@@ -345,7 +374,7 @@ def train(args, model, enc=False):
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
             if "ENet" in args.model:
-              outputs = model(inputs)
+                outputs = model(inputs)
             # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
             # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
             # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
@@ -659,33 +688,37 @@ def main(args):
     """
 
     # train(args, model)
-    if (not args.decoder):
-        print("========== ENCODER TRAINING ===========")
-        model = train(args, model, True)  # Train encoder
-    # CAREFUL: for some reason, after training encoder alone, the decoder gets weights=0.
-    # We must reinit decoder weights or reload network passing only encoder in order to train decoder
-    print("========== DECODER TRAINING ===========")
-    if (not args.state):
-        if args.pretrainedEncoder:
-            print("Loading encoder pretrained in imagenet")
-            from erfnet_imagenet import ERFNet as ERFNet_imagenet
-            pretrainedEnc = torch.nn.DataParallel(ERFNet_imagenet(1000))
-            pretrainedEnc.load_state_dict(torch.load(args.pretrainedEncoder)['state_dict'])
-            pretrainedEnc = next(pretrainedEnc.children()).features.encoder
-            if (not args.cuda):
-                pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
-        elif "erfnet" in args.model:
-            pretrainedEnc = next(model.children()).encoder
-        if "BiSeNet" in args.model:
-            model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
-        if "erfnet" in args.model:
-            model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
-        if "ENet" in args.model:
-          model = model_file.ENet(NUM_CLASSES)
-        if args.cuda:
-            model = torch.nn.DataParallel(model).cuda()
+    if not "ENet" in args.model:
+        if (not args.decoder):
+            print("========== ENCODER TRAINING ===========")
+            model = train(args, model, True)  # Train encoder
+        # CAREFUL: for some reason, after training encoder alone, the decoder gets weights=0.
+        # We must reinit decoder weights or reload network passing only encoder in order to train decoder
+        print("========== DECODER TRAINING ===========")
+        if (not args.state):
+            if args.pretrainedEncoder:
+                print("Loading encoder pretrained in imagenet")
+                from erfnet_imagenet import ERFNet as ERFNet_imagenet
+                pretrainedEnc = torch.nn.DataParallel(ERFNet_imagenet(1000))
+                pretrainedEnc.load_state_dict(torch.load(args.pretrainedEncoder)['state_dict'])
+                pretrainedEnc = next(pretrainedEnc.children()).features.encoder
+                if (not args.cuda):
+                    pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
+            # elif "erfnet" in args.model:
+            elif "erfnet" in args.model:
+                pretrainedEnc = next(model.children()).encoder
+            if "BiSeNet" in args.model:
+                model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
+            if "erfnet" in args.model:
+                model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
+            
+            if args.cuda:
+                model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
-    model = train(args, model, False)  # Train decoder
+        model = train(args, model, False)  # Train decoder
+    else:
+        print("========== ENET TRAINING ===========")
+        model = train(args, model, False)
     print("========== TRAINING FINISHED ===========")
 
 
@@ -699,7 +732,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8097)
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
-    parser.add_argument('--num-epochs', type=int, default=150)
+    parser.add_argument('--num-epochs', type=int, default=50)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=6)
     parser.add_argument('--steps-loss', type=int, default=50)
