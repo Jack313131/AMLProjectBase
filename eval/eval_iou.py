@@ -11,6 +11,7 @@ import os
 import importlib
 import time
 
+
 from PIL import Image
 from argparse import ArgumentParser
 
@@ -157,7 +158,7 @@ def main(args):
     # model2 = myutils.remove_prunned_channels_from_model(model2, argsPlus)
     # print("Model and weights LOADED successfully")
 
-    calibrationQuantization = DataLoader( cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+    # calibrationQuantization = DataLoader( cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     # commando per forzare il modello ad essere in modelità valutazione
     model.eval()
@@ -166,12 +167,12 @@ def main(args):
     model2.quantize()
     # model2 = model2.to("cuda")
 
-    for step, (images, labels, _, _) in enumerate(calibrationQuantization):
-        if (not args.cpu):
-            images = images.cuda()
-            labels = labels.cuda()
+    # for step, (images, labels, _, _) in enumerate(calibrationQuantization):
+    #     if (not args.cpu):
+    #         images = images.cuda()
+    #         labels = labels.cuda()
 
-        model2.quantize_forward(images)
+    #     model2.quantize_forward(images)
 
     # model2.freeze()
     print("Model Pruned and Quantized ... ")
