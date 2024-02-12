@@ -38,12 +38,16 @@ class DownsamplerBlock (nn.Module):
         return self
 
     def quantize_forward(self, input):
+        inputMaxPool = input
+        if hasattr(self, "adaptingInput") and self.conv.in_channels + self.conv.out_channels != self.bn.num_features:
+            inputMaxPool = self.adaptingInput(input)
+
         # print("#### QDS ####")
         #print("Input: ", input.shape)
         # x = self.qconv(x)
         # print("QPool_f: ", x.shape)
         # x = self.qpool(x)
-        x = torch.cat([self.qconv(input), self.qpool(input)], 1)
+        x = torch.cat([self.qconv(input), self.qpool(inputMaxPool)], 1)
         #print("QConv+QPool_f: ", x.shape)
         # print("BN: ", x.shape)
         # x = self.bn(x)
@@ -63,13 +67,16 @@ class DownsamplerBlock (nn.Module):
         # self.qrelu.freeze(self.qconv.qo)
 
     def quantize_inference(self, x):
+        inputMaxPool = x
+        if hasattr(self, "adaptingInput") and self.conv.in_channels + self.conv.out_channels != self.bn.num_features:
+            inputMaxPool = self.adaptingInput(x)
         # print("#### QI DS ####")
         # print("Input: ", x.shape)
         qx = self.qconv.qi.quantize_tensor(x)
         # qx_p = self.qpool.qi.quantize_tensor(qx)
         # print("Cat: ", qx.shape)
         # print("Cat p: ", qx_p.shape)
-        qx = torch.cat([self.qconv.quantize_inference(qx), self.qpool.quantize_inference(qx)], 1)
+        qx = torch.cat([self.qconv.quantize_inference(qx), self.qpool.quantize_inference(inputMaxPool)], 1)
         # print("Cat: ", qx.shape)
         # qx = self.qrelu.quantize_inference(qx)
         out = self.qrelu.quantize_inference(qx)
@@ -121,9 +128,9 @@ class non_bottleneck_1d(nn.Module):
         return F.relu(output + input)  # +input = identity (residual connection)
 
     def quantize(self, num_bits=8):
-        self.qconv3x1_1 = QConv2d(self.conv1x3_1, qi=True, qo=True, num_bits=num_bits)
+        self.qconv3x1_1 = QConv2d(self.conv3x1_1, qi=True, qo=True, num_bits=num_bits)
         self.qrelu1 = QReLU()
-        self.qconv1x3_1 = QConvBNReLU(self.conv3x1_1, self.bn1, qi=False, qo=True, num_bits=num_bits)
+        self.qconv1x3_1 = QConvBNReLU(self.conv1x3_1, self.bn1, qi=False, qo=True, num_bits=num_bits)
         self.qconv3x1_2 = QConv2d(self.conv3x1_2, qi=False, qo=True, num_bits=num_bits)
         self.qrelu2 = QReLU()
         self.qconv1x3_2 = QConv2d(self.conv1x3_2, qi=False, qo=True, num_bits=num_bits)
@@ -154,12 +161,14 @@ class non_bottleneck_1d(nn.Module):
             output = self.qdropout2d(output)
             #print("QDropout_f: ", output.shape)
 
+        if hasattr(self, 'adaptingInput') and input.size()[1] != output.size()[1]:
+            input = self.adaptingInput(input)
+
         # Apply the identity (residual connection) and ReLU
-        output = self.qrelu3(output + input)  # +x = identity (residual connection)
         # print("QRelu3_f: {}", output.shape)
         #print("Outpuy: ", output.shape)
         #print("#### END ####")
-        return output
+        return self.qrelu3(output + input)  # +x = identity (residual connection)
 
     def freeze(self):
         # print("##### Freezing NB1D #####")
@@ -192,8 +201,12 @@ class non_bottleneck_1d(nn.Module):
         qx = self.qconv1x3_2.quantize_inference(qx)
         if hasattr(self, 'qdropout2d'):
             qx = self.quantize_inference(qx)
+
+        if hasattr(self, 'adaptingInput') and x.size()[1] != qx.size()[1]:
+            x = self.adaptingInput(x)
+
         # print("Conv: ", qx.shape)
-        out = self.qrelu3.quantize_inference(qx)
+        out = self.qrelu3.quantize_inference(qx+x)
         # print("Output: ", out.shape)
         return out
     

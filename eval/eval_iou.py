@@ -121,7 +121,7 @@ def main(args):
     # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
     # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
     model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
-    model2 = load_my_state_dict(model2, torch.load( args.loadDir + "model_best.pth", map_location=lambda storage, loc: storage))
+    model2 = load_my_state_dict(model2, torch.load( args.loadDir + args.loadWeightsPruned, map_location=lambda storage, loc: storage))
     argsPlus = {
         "listLayerPruning": ["non_bottleneck_1d"],
         "listNumLayerPruning": [],
@@ -148,6 +148,7 @@ def main(args):
         model2.quantize_forward(images)
 
     model2.freeze()
+    print("Model Pruned and Quantized ... ")
 
     if(not os.path.exists(args.datadir)):
         print ("Error: datadir could not be loaded")
@@ -270,6 +271,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--loadDir',default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
+    parser.add_argument('--loadWeightsPruned', default="")
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--subset', default="val")  #can be val or train (must have labels)
     parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/cityscapes/")
