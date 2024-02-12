@@ -1,6 +1,5 @@
 from torch.serialization import load
 #from model import *
-
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
 import torch
@@ -72,44 +71,57 @@ def direct_quantize(args, model, test_loader):
 def full_inference(args, model, test_loader):
     intersection = 0
     union = 0
+    total_flops = 0
     iouEvalVal = iouEval(NUM_CLASSES)
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
+    # for name, param in model.named_parameters():
+    #   if param.requires_grad and not "qencoder" in name and not "qdecoder" in name:
+    #       print(name)
+    num_params = sum(p.numel() for name, p in model.named_parameters() if p.requires_grad and not "qencoder" in name and not "qdecoder" in name)
+    # flops = FlopCountAnalysis(model, data)
+    # flops.total()
     for i, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data = data.cuda()
             target = target.cuda()
         data = Variable(data)
+        #with torch.profiler.profile(use_cuda=torch.cuda.is_available()) as prof:
         with torch.no_grad():
             output = model(data)
+            #total_flops += prof.key_averages().total_float_ops
         # finalOutput = output.max(1)[1].unsqueeze(1)
         # iouEvalVal.addBatch(finalOutput.data, target)
             pred = output.argmax(dim=1)
             intersection += torch.logical_and(pred, target).sum().item()
             union += torch.logical_or(pred, target).sum().item()
     miou = intersection / union
-    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, flops, num_params))
+    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, total_flops, num_params))
     return miou
 
 def quantize_inference(args, model, test_loader):
     correct = 0
     intersection = 0
     union = 0
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
+    # for name, param in model.named_parameters():
+    #   if param.requires_grad and ("qencoder" in name or "qdecoder" in name):
+    #       print(name)
+    total_flops, num_params = model.get_flops_and_params()
+    # total_flops = 0
+    # flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
     for i, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data = data.cuda()
             target = target.cuda()
         data = Variable(data)
+        #with torch.profiler.profile(use_cuda=torch.cuda.is_available()) as prof:
         with torch.no_grad():
             # print("Data: ", data.shape)
             output = model.quantize_inference(data)
+            #total_flops += prof.key_averages().total_float_ops
             pred = output.argmax(dim=1)
             intersection += torch.logical_and(pred, target).sum().item()
             union += torch.logical_or(pred, target).sum().item()
     miou = intersection / union
-    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, flops, num_params))
+    print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, total_flops, num_params))
     return miou
     #print('\nTest set: Quant Model Accuracy: {:.0f}%\n'.format(100. * correct / len(test_loader.dataset)))
 

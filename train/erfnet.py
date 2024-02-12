@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
-from torch.quantization import quantize_fx
+from compute_flops import compute_flops
 
 from module import *
 
@@ -74,7 +74,7 @@ class DownsamplerBlock (nn.Module):
         # print("#### QI DS ####")
         # print("Input: ", x.shape)
         qx = self.qconv.qi.quantize_tensor(x)
-        qx_p = self.qpool.qi.quantize_tensor(qx)
+        # qx_p = self.qpool.qi.quantize_tensor(qx)
         # print("Cat: ", qx.shape)
         # print("Cat p: ", qx_p.shape)
         qx = torch.cat([self.qconv.quantize_inference(qx), self.qpool.quantize_inference(qx)], 1)
@@ -85,6 +85,15 @@ class DownsamplerBlock (nn.Module):
         # out = self.qconv.qo.dequantize_tensor(qx)
         return out
 
+    def get_flops_and_params(self):
+        print("### DS ###")
+        params = sum(p.numel() for p in self.qconv.parameters() if p.requires_grad)
+        # print("params: ", params)
+        # params += sum(p.numel() for p in self.qpool.parameters() if p.requires_grad)
+        # print("params: ", params)
+        # params += sum(p.numel() for p in self.qrelu.parameters() if p.requires_grad)
+        print("### total params: {} ###".format(params))
+        return 1, params
 
 
 class non_bottleneck_1d(nn.Module):
@@ -141,11 +150,8 @@ class non_bottleneck_1d(nn.Module):
         self.qconv3x1_2 = QConv2d(self.conv3x1_2, qi=False, qo=True, num_bits=num_bits)
         self.qrelu2 = QReLU()
         self.qconv1x3_2 = QConv2d(self.conv1x3_2, qi=False, qo=True, num_bits=num_bits)
-        # if (self.dropout.p != 0):
-        #     self.qdropout2d = QDropout2d(self.dropout, qi=False, qo=True, num_bits=num_bits)
         self.qrelu3 = QReLU()
-        # else:
-        #     self.qconv3x1_2 = QConvBNReLU(self.conv3x1_2, self.bn2, qi=True, qo=True, num_bits=num_bits)
+        # self.qconv3x1_2 = QConvBNReLU(self.conv3x1_2, self.bn2, qi=True, qo=True, num_bits=num_bits)
         return self
 
     def quantize_forward(self, input):
@@ -213,6 +219,24 @@ class non_bottleneck_1d(nn.Module):
         out = self.qrelu3.quantize_inference(qx)
         # print("Output: ", out.shape)
         return out
+    
+    def get_flops_and_params(self):
+        print("### NB1D ###")
+        params = sum(p.numel() for p in self.qconv3x1_1.parameters() if p.requires_grad)
+        print("params: ", params)
+        # params += sum(p.numel() for p in self.qrelu1.parameters() if p.requires_grad)
+        # print("params: ", params)
+        params += sum(p.numel() for p in self.qconv1x3_1.parameters() if p.requires_grad)
+        print("params: ", params)
+        params += sum(p.numel() for p in self.qconv3x1_2.parameters() if p.requires_grad)
+        print("params: ", params)
+        # params += sum(p.numel() for p in self.qrelu2.parameters() if p.requires_grad)
+        # print("params: ", params)
+        params += sum(p.numel() for p in self.qconv1x3_2.parameters() if p.requires_grad)
+        # print("params: ", params)
+        # params += sum(p.numel() for p in self.qrelu3.parameters() if p.requires_grad)
+        print("### Total params: {} ###".format(params))
+        return 1, params
 
 
 class Encoder(nn.Module):
@@ -265,12 +289,12 @@ class Encoder(nn.Module):
         for layer in self.qlayers:
             x = layer.quantize_forward(x)
         if predict:
-            print("### Output Conv ###")
+            # print("### Output Conv ###")
             x = self.qoutput_conv(x)
         return x
 
     def freeze(self, predict=False):
-        print("#### Freezing Encoder ####")
+        # print("#### Freezing Encoder ####")
         self.qinitial_block.freeze()
         for layer in self.qlayers:
             layer.freeze()
@@ -278,7 +302,7 @@ class Encoder(nn.Module):
             self.qoutput_conv.freeze()
 
     def quantize_inference(self, x):
-        print("#### Quantize Inference Encoder ####")
+        # print("#### Quantize Inference Encoder ####")
         qx = self.qinitial_block.quantize_inference(x)
 
         # Pass the quantized input through each layer
@@ -288,18 +312,17 @@ class Encoder(nn.Module):
         # Pass the output through the output_conv layer if it exists
         # qx = self.qoutput_conv.quantize_inference(qx)
         return qx
-
-    # def prepare_fx(self, m, qconfig_dict, example_input):
-    #     self.initial_block = quantize_fx.prepare_fx(self.initial_block, qconfig_dict, example_input)
-    #     l = nn.ModuleList()
-    #     for layer in self. layers:
-    #         layer.qconfig = torch.quantization.default_qconfig
-    #         l.append(quantize_fx.prepare_fx(layer, qconfig_dict, example_input))
-    #     self.layers = nn.ModuleList(l)
-    #     self.output_conv = quantize_fx.prepare_fx(self.output_conv, qconfig_dict, example_input)
-    #     return self
-
-
+    
+    def get_flops_and_params(self):
+        flops, params = self.qinitial_block.get_flops_and_params()
+        # print(params)
+        for l in self.layers:
+            flops_l, params_l = l.get_flops_and_params()
+            params += params_l
+            flops += flops_l
+        # param = sum(p.numel() for p in self.qoutput_conv.parameters())
+        # params += param
+        return flops, params
 
 
 class UpsamplerBlock (nn.Module):
@@ -346,6 +369,11 @@ class UpsamplerBlock (nn.Module):
         qx = self.qconv.quantize_inference(qx)
         out = self.qconv.qo.dequantize_tensor(qx)
         return out
+    
+    def get_flops_and_params(self):
+        params = sum(p.numel() for p in self.qconv.parameters() if p.requires_grad)
+        print("### US params: {} ###".format(params))
+        return 0, params
 
 class Decoder(nn.Module):
     def __init__(self, num_classes):
@@ -392,14 +420,14 @@ class Decoder(nn.Module):
         return output
 
     def freeze(self):
-        print("#### Freezing Decoder ####")
+        # print("#### Freezing Decoder ####")
         for layer in self.layers:
             layer.freeze()
 
         self.q_output_conv.freeze()
 
     def quantize_inference(self, x):
-        print("#### Quantize Inference Decoder ####")
+        # print("#### Quantize Inference Decoder ####")
         for layer in self.layers:
             if hasattr(layer, 'quantize_inference'):
                 x = layer.quantize_inference(x)
@@ -408,21 +436,21 @@ class Decoder(nn.Module):
             x = self.q_output_conv(x)
 
         return x
+    
+    def get_flops_and_params(self):
+        flops = 0
+        params = 0
+        for l in self.layers:
+            flops_l, params_l = l.get_flops_and_params()
+            flops += flops_l
+            params += params_l
+        for name, param in self.q_output_conv.named_parameters():
+            if param.requires_grad:
+                print(name)
+        params_o = sum(p.numel() for p in self.q_output_conv.parameters() if p.requires_grad)
+        params += params_o
+        return flops, params
 
-
-    def prepare_fx(self, m, qconfig_dict, example_input):
-        # l = nn.ModuleList()
-        # for layer in self. layers:
-        #     layer.qconfig = torch.quantization.default_qconfig
-        #     l.append(quantize_fx.prepare_fx(layer, qconfig_dict, example_input))
-        # self.layers = l
-        # self.output_conv = quantize_fx.prepare_fx(self.output_conv, qconfig_dict, example_input)
-        l = nn.ModuleList()
-        for layer in self.layers:
-            layer.qconfig = torch.quantization.default_qconfig
-            l.append(quantize_fx.prepare_fx(layer, qconfig_dict, example_input))
-        self.layers = l
-        return self
 
 #ERFNet
 class Net(nn.Module):
@@ -437,7 +465,11 @@ class Net(nn.Module):
     def quantize(self, num_bits=8):
         self.qencoder = self.encoder.quantize(num_bits=num_bits)
         self.qdecoder = self.decoder.quantize(num_bits=num_bits)
-
+        
+        # qencoder_params = list(self.encoder.parameters())
+        # self.register_parameter('qencoder', nn.Parameter(qencoder_params))
+        # self.register_parameter('qdecoder', nn.Parameter(self.encoder.parameters()))
+            
     def forward(self, input, only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
@@ -456,73 +488,17 @@ class Net(nn.Module):
         self.decoder.freeze()
 
     def quantize_inference(self, x):
-        print("### Encoder input: ", x.shape)
+        # print("### Encoder input: ", x.shape)
         output = self.qencoder.quantize_inference(x)
         return self.qdecoder.quantize_inference(output)
 
+    def get_flops_and_params(self):
+        
+        if hasattr(self, "qencoder"):
+            flops_e, params_e = self.qencoder.get_flops_and_params()
+        if hasattr(self, "qdecoder"):
+            flops_d, params_d = self.qdecoder.get_flops_and_params()
 
-    def prepare_fx(self, m, qconfig_dict, example_input):
-        self.encoder = self.encoder.prepare_fx(m, qconfig_dict, example_input)
-        #print(self.encoder)
-        self.decoder = self.decoder.prepare_fx(m, qconfig_dict, example_input)
-        #print(self.decoder)
-        return self
-
-class NetBN(nn.Module):
-
-    def __init__(self, num_channels=1):
-        super(NetBN, self).__init__()
-        self.conv1 = nn.Conv2d(num_channels, 40, 3, 1)
-        self.bn1 = nn.BatchNorm2d(40)
-        self.conv2 = nn.Conv2d(40, 40, 3, 1)
-        self.bn2 = nn.BatchNorm2d(40)
-        self.fc = nn.Linear(5 * 5 * 40, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2, 2)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 5 * 5 * 40)
-        x = self.fc(x)
-        return x
-
-    def quantize(self, num_bits=8):
-        self.qconv1 = QConvBNReLU(self.conv1, self.bn1, qi=True, qo=True, num_bits=num_bits)
-        self.qmaxpool2d_1 = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
-        self.qconv2 = QConvBNReLU(self.conv2, self.bn2, qi=False, qo=True, num_bits=num_bits)
-        self.qmaxpool2d_2 = QMaxPooling2d(kernel_size=2, stride=2, padding=0)
-        self.qfc = QLinear(self.fc, qi=False, qo=True, num_bits=num_bits)
-
-    def quantize_forward(self, x):
-        x = self.qconv1(x)
-        x = self.qmaxpool2d_1(x)
-        x = self.qconv2(x)
-        x = self.qmaxpool2d_2(x)
-        x = x.view(-1, 5*5*40)
-        x = self.qfc(x)
-        return x
-
-    def freeze(self):
-        self.qconv1.freeze()
-        self.qmaxpool2d_1.freeze(self.qconv1.qo)
-        self.qconv2.freeze(qi=self.qconv1.qo)
-        self.qmaxpool2d_2.freeze(self.qconv2.qo)
-        self.qfc.freeze(qi=self.qconv2.qo)
-
-    def quantize_inference(self, x):
-        qx = self.qconv1.qi.quantize_tensor(x)
-        qx = self.qconv1.quantize_inference(qx)
-        qx = self.qmaxpool2d_1.quantize_inference(qx)
-        qx = self.qconv2.quantize_inference(qx)
-        qx = self.qmaxpool2d_2.quantize_inference(qx)
-        qx = qx.view(-1, 5*5*40)
-
-        qx = self.qfc.quantize_inference(qx)
-
-        out = self.qfc.qo.dequantize_tensor(qx)
-        return out
+        total_flops = flops_e + flops_d
+        total_params = params_e + params_d
+        return total_flops, total_params
