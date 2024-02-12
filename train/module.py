@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from function import FakeQuantize, interp
+from train.function import FakeQuantize, interp
 
 
 def calcScaleZeroPoint(min_val, max_val, num_bits=8):

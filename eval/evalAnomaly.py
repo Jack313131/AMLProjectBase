@@ -2,12 +2,17 @@
 import os
 #import cv2
 import glob
+from types import SimpleNamespace
+
 import torch
 import random
 import thop
 from PIL import Image
 import numpy as np
+
+import utils.utils as myutils
 from erfnet import ERFNet
+from train.erfnet import Net
 from BiSeNetV1 import BiSeNetV1
 import os.path as osp
 from argparse import ArgumentParser
@@ -43,6 +48,10 @@ torch.backends.cudnn.benchmark = True
 
 
 def main():
+
+    if os.path.basename(os.getcwd()) != "eval":
+        os.chdir("./eval")
+
     parser = ArgumentParser()
     parser.add_argument(
         "--input",
@@ -85,13 +94,27 @@ def main():
     if (not args.cpu):
         model = torch.nn.DataParallel(model).cuda()
 
-    # La funzione load_my_state_dict nel codice che hai fornito è progettata per caricare i pesi (o parametri) di un modello di machine learning da un file salvato
-    # La funzione accetta due argomenti: model, che è il modello di machine learning in cui si desidera caricare i pesi, e state_dict, che è un dizionario contenente i pesi da caricare.
-    def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
+    def load_my_state_dict_with_pruning(model, state_dict):  # custom function to load model when not all dict elements
         # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
         own_state = model.state_dict()
         # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
         for name, param in state_dict.items():
+            if "weight_orig" in name:
+                # Il nome del parametro originale senza il suffisso '_orig'
+                name = name.replace("_orig", "")
+
+                # Recupera la maschera e il parametro originale
+                mask = state_dict[name.replace("weight_orig", "weight_mask")]
+                param = state_dict[name]
+
+                # Applica la maschera al parametro
+                param = param * mask
+
+                #original_name = original_name.replace("module.","")
+                # Aggiorna il parametro nel modello
+                #getattr(model, original_name).data.copy_(pruned_param)
+                #own_state[original_name].copy_(pruned_param)
+
             if name not in own_state:
                 # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
                 # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
@@ -108,18 +131,72 @@ def main():
                 own_state[name].copy_(param)
         return model  # l'aggiornamento diretto dei pesi viene fatto copiando i nuovi valori dei pesi nei opportuni layer del own_state il quale tiene un puntatore dei vari layer (cosi la modifica si propaga subito anche al modello di partenza)
 
+    # La funzione load_my_state_dict nel codice che hai fornito è progettata per caricare i pesi (o parametri) di un modello di machine learning da un file salvato
+    # La funzione accetta due argomenti: model, che è il modello di machine learning in cui si desidera caricare i pesi, e state_dict, che è un dizionario contenente i pesi da caricare.
+    def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
+        # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
+        own_state = model.state_dict()
+        # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
+        for name, param in state_dict.items():
+            if "weight_orig" in name:
+                # Il nome del parametro originale senza il suffisso '_orig'
+                original_name = name.replace("_orig", "")
+                # Recupera la maschera e il parametro originale
+                mask = state_dict[name.replace("weight_orig", "weight_mask")]
+                original_param = state_dict[name]
+                # Applica la maschera al parametro
+                pruned_param = original_param * mask
+                name = original_name
+                param = pruned_param
+                #original_name = original_name.replace("module.","")
+                # Aggiorna il parametro nel modello
+                #getattr(model, original_name).data.copy_(pruned_param)
+                #own_state[original_name].copy_(pruned_param)
+
+            if "weight_mask" not in name:
+                if name not in own_state:
+                    # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
+                    # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
+                    if name.startswith("module."):
+                        own_state[name.split("module.")[-1]].copy_(
+                            param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+                    else:
+                        print(name, " not loaded")
+                        continue
+                else:
+                    # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
+                    # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
+                    # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
+                    own_state[name].copy_(param)
+
+        return model  # l'aggiornamento diretto dei pesi viene fatto copiando i nuovi valori dei pesi nei opportuni layer del own_state il quale tiene un puntatore dei vari layer (cosi la modifica si propaga subito anche al modello di partenza)
+
     # torch.load è una funzione in PyTorch che carica un oggetto salvato da un file. Questo oggetto può essere qualsiasi cosa che sia stata salvata precedentemente con torch.save, come un modello, un dizionario di stato del modello, un tensore, ecc.
     # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
     # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
     model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
+    model2 = load_my_state_dict(model2,torch.load(args.loadDir+"model_best.pth",map_location=lambda storage, loc: storage))
+    args = {
+        "listLayerPruning" : ["non_bottleneck_1d"],
+        "listNumLayerPruning" : [],
+        "listInnerLayerPruning" : ["conv"],
+        "pruning" : 0.3,
+
+    }
+    args = SimpleNamespace(**args)
+    model2 = myutils.remove_prunned_channels_from_model(model2,args)
     print("Model and weights LOADED successfully")
     input = torch.randn(1, 3, 224, 224).to("cpu")
     # print(input.device)
     flops, params = thop.profile(model, inputs=(input,))
-    #flops2, params2 = thop.profile(model2, inputs=(input,))
-    print(f"FLOPs: {flops}")
+    flops2, params2 = thop.profile(model2, inputs=(input,))
+    #print(f"FLOPs: {flops}")
     #print(f"FLOPs: {flops2}")
     #print(f"FLOPs different {flops - flops2}")
+
+    model2.eval()
+    model2.quantize()
+    model2.freeze()
 
     if (args.backgroundAnomaly):
         print("Considering background as anomaly ...")
@@ -146,6 +223,7 @@ def main():
         # Il modello viene eseguito sulle immagini senza calcolare i gradienti (perché è in fase di valutazione, non di addestramento).
         with torch.no_grad():
             result = model(images)
+            result2 = model2.quantize_inference(images)
             if args.backgroundAnomaly:
                 # result = result[:, 19:20, :, :]
                 void_probabilities = result[:, 19, :, :]
@@ -168,8 +246,7 @@ def main():
         if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
             eps = 1e-8
             probs = torch.nn.functional.softmax(result, 1)  # result = model(images), F = torch.nn.functional
-            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),
-                                torch.log(torch.tensor(probs.shape[1]) + eps))
+            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1), torch.log(torch.tensor(probs.shape[1]) + eps))
             if args.backgroundAnomaly:
                 anomaly_result = 1 - entropy.data.cpu().numpy()[0].astype("float32")
             else:

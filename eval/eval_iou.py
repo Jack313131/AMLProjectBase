@@ -2,6 +2,7 @@
 # Nov 2017
 # Eduardo Romera
 #######################
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -9,7 +10,7 @@ import torch.nn.functional as F
 import os
 import importlib
 import time
-
+import utils.utils as myutils
 from PIL import Image
 from argparse import ArgumentParser
 
@@ -20,6 +21,7 @@ from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import cityscapes
 from erfnet import ERFNet
+from train.erfnet import Net
 from transform import Relabel, ToLabel, Colorize
 from iouEval import iouEval, getColorEntry
 
@@ -69,6 +71,7 @@ def main(args):
     print ("Loading weights: " + weightspath)
 
     model = ERFNet(NUM_CLASSES)
+    model2 = Net(NUM_CLASSES)
 
     #model = torch.nn.DataParallel(model)
     if (not args.cpu):
@@ -81,30 +84,70 @@ def main(args):
         own_state = model.state_dict()
         # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
         for name, param in state_dict.items():
-            if name not in own_state:
-                # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
-                # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
-                if name.startswith("module."):
-                    own_state[name.split("module.")[-1]].copy_(
-                        param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+            if "weight_orig" in name:
+                # Il nome del parametro originale senza il suffisso '_orig'
+                original_name = name.replace("_orig", "")
+                # Recupera la maschera e il parametro originale
+                mask = state_dict[name.replace("weight_orig", "weight_mask")]
+                original_param = state_dict[name]
+                # Applica la maschera al parametro
+                pruned_param = original_param * mask
+                name = original_name
+                param = pruned_param
+                # original_name = original_name.replace("module.","")
+                # Aggiorna il parametro nel modello
+                # getattr(model, original_name).data.copy_(pruned_param)
+                # own_state[original_name].copy_(pruned_param)
+
+            if "weight_mask" not in name:
+                if name not in own_state:
+                    # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
+                    # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
+                    if name.startswith("module."):
+                        own_state[name.split("module.")[-1]].copy_(
+                            param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+                    else:
+                        print(name, " not loaded")
+                        continue
                 else:
-                    print(name, " not loaded")
-                    continue
-            else:
-                # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
-                # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
-                # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
-                own_state[name].copy_(param)
+                    # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
+                    # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
+                    # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
+                    own_state[name].copy_(param)
+
         return model  # l'aggiornamento diretto dei pesi viene fatto copiando i nuovi valori dei pesi nei opportuni layer del own_state il quale tiene un puntatore dei vari layer (cosi la modifica si propaga subito anche al modello di partenza)
 
     # torch.load è una funzione in PyTorch che carica un oggetto salvato da un file. Questo oggetto può essere qualsiasi cosa che sia stata salvata precedentemente con torch.save, come un modello, un dizionario di stato del modello, un tensore, ecc.
     # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
     # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
     model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
+    model2 = load_my_state_dict(model2, torch.load( args.loadDir + "model_best.pth", map_location=lambda storage, loc: storage))
+    argsPlus = {
+        "listLayerPruning": ["non_bottleneck_1d"],
+        "listNumLayerPruning": [],
+        "listInnerLayerPruning": ["conv"],
+        "pruning": 0.3,
+
+    }
+    argsPlus = SimpleNamespace(**argsPlus)
+    model2 = myutils.remove_prunned_channels_from_model(model2, argsPlus)
     print ("Model and weights LOADED successfully")
+
+    calibrationQuantization = DataLoader( cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     # commando per forzare il modello ad essere in modelità valutazione
     model.eval()
+    model2.eval()
+    model2.quantize()
+
+    for step, (images, labels, _, _) in enumerate(calibrationQuantization):
+        if (not args.cpu):
+            images = images.cuda()
+            labels = labels.cuda()
+
+        model2.quantize_forward(images)
+
+    model2.freeze()
 
     if(not os.path.exists(args.datadir)):
         print ("Error: datadir could not be loaded")
@@ -112,6 +155,7 @@ def main(args):
     loader = DataLoader(cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     iouEvalVal = iouEval(NUM_CLASSES)
+    iouEvalVal2 = iouEvalVal(NUM_CHANNELS)
 
     start = time.time()
 
@@ -123,6 +167,7 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputs = model(inputs)
+            outputs2 = model2.quantize_inference(images)
 
         finalOutput = outputs.max(1)[1].unsqueeze(1)
 
@@ -142,6 +187,7 @@ def main(args):
             finalOutput = predicted_classes.unsqueeze(1)
 
         iouEvalVal.addBatch(finalOutput.data, labels)
+        iouEvalVal2.addBatch(outputs2.max(1)[1].unsqueeze(1))
 
         filenameSave = filename[0].split("leftImg8bit/")[1]
 
@@ -149,11 +195,17 @@ def main(args):
 
 
     iouVal, iou_classes = iouEvalVal.getIoU()
+    iouVal2, iou_classes2 = iouEvalVal2.getIoU()
 
     iou_classes_str = []
     for i in range(iou_classes.size(0)):
         iouStr = getColorEntry(iou_classes[i])+'{:0.2f}'.format(iou_classes[i]*100) + '\033[0m'
         iou_classes_str.append(iouStr)
+
+    iou_classes_str2 = []
+    for i in range(iou_classes2.size(0)):
+        iouStr = getColorEntry(iou_classes2[i]) + '{:0.2f}'.format(iou_classes2[i] * 100) + '\033[0m'
+        iou_classes_str2.append(iouStr)
 
     print("---------------------------------------")
     print("Took ", time.time()-start, "seconds")
@@ -183,6 +235,34 @@ def main(args):
     iouStr = getColorEntry(iouVal)+'{:0.2f}'.format(iouVal*100) + '\033[0m'
     print ("MEAN IoU: ", iouStr, "%")
 
+    print("---------------------------------------")
+    print("Took ", time.time() - start, "seconds")
+    print("=======================================")
+    # print("TOTAL IOU: ", iou * 100, "%")
+    print("Per-Class IoU:")
+    print(iou_classes_str2[0], "Road")
+    print(iou_classes_str2[1], "sidewalk")
+    print(iou_classes_str2[2], "building")
+    print(iou_classes_str2[3], "wall")
+    print(iou_classes_str2[4], "fence")
+    print(iou_classes_str2[5], "pole")
+    print(iou_classes_str2[6], "traffic light")
+    print(iou_classes_str2[7], "traffic sign")
+    print(iou_classes_str2[8], "vegetation")
+    print(iou_classes_str2[9], "terrain")
+    print(iou_classes_str2[10], "sky")
+    print(iou_classes_str2[11], "person")
+    print(iou_classes_str2[12], "rider")
+    print(iou_classes_str2[13], "car")
+    print(iou_classes_str2[14], "truck")
+    print(iou_classes_str2[15], "bus")
+    print(iou_classes_str2[16], "train")
+    print(iou_classes_str2[17], "motorcycle")
+    print(iou_classes_str2[18], "bicycle")
+    print("=======================================")
+    iouStr = getColorEntry(iouVal2) + '{:0.2f}'.format(iouVal2 * 100) + '\033[0m'
+    print("MEAN IoU: ", iouStr, "%")
+
 if __name__ == '__main__':
     parser = ArgumentParser()
 
@@ -198,5 +278,8 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--typeConfidence', default='MaxLogit')
     parser.add_argument("--temperature", default = 1.0)
+
+    if os.path.basename(os.getcwd()) != "eval":
+        os.chdir("./eval")
 
     main(parser.parse_args())

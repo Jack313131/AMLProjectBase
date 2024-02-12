@@ -7,9 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
-from compute_flops import compute_flops
 
-from module import *
+from train.module import *
 
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
@@ -20,20 +19,13 @@ class DownsamplerBlock (nn.Module):
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input):
-        #print("#### DownSampler ####")
-        #print("Input: ", input.shape)
-        output = torch.cat([self.conv(input), self.pool(input)], 1)
-        #print("Conv+pool: ", output.shape)
-        # output = self.conv(input)
-        # print("Pool: ", input.shape)
-        # output = self.pool(input)
+        inputMaxPool = input
+        if hasattr(self, "adaptingInput") and self.conv.in_channels + self.conv.out_channels != self.bn.num_features:
+            inputMaxPool = self.adaptingInput(input)
+
+        output = torch.cat([self.conv(input), self.pool(inputMaxPool)], 1)
         output = self.bn(output)
-        #print("BN: ", output.shape)
-        output = F.relu(output)
-        #print("Relu: ", output.shape)
-        #print("Output: ", output.shape)
-        #print("#### END ####")
-        return output
+        return F.relu(output)
 
     def quantize(self, num_bits=8):
         self.qconv = QConv2d(self.conv, qi=True, qo=True, num_bits=num_bits)
@@ -109,39 +101,24 @@ class non_bottleneck_1d(nn.Module):
         self.dropout = nn.Dropout2d(dropprob)
 
     def forward(self, input):
-        #print("#### NB1D ####")
-        #print("Input: ", input.shape)
         output = self.conv3x1_1(input)
-        # print("Conv: ", output.shape)
         output = F.relu(output)
-        # print("Relu: ", output.shape)
-
         output = self.conv1x3_1(output)
-        # print("Conv: ", output.shape)
         output = self.bn1(output)
-        # print("BN: ", output.shape)
         output = F.relu(output)
-        # print("Relu: ", output.shape)
 
         output = self.conv3x1_2(output)
-        # print("Conv: ", output.shape)
         output = F.relu(output)
-        # print("Relu: ", output.shape)
         output = self.conv1x3_2(output)
-        # print("Conv: ", output.shape)
         output = self.bn2(output)
-        # print("BN: ", output.shape)
+
+        if hasattr(self, 'adaptingInput') and input.size()[1] != output.size()[1]:
+            input = self.adaptingInput(input)
 
         if (self.dropout.p != 0):
             output = self.dropout(output)
-            #print("Drop: ", output.shape)
 
-        output = F.relu(output+input)    #+input = identity (residual connection)
-        # print("Relu: ", output.shape)
-        #print("Output: ", output.shape)
-        #print("#### END ####")
-        return output
-        #return F.relu(output+input)    #+input = identity (residual connection)
+        return F.relu(output + input)  # +input = identity (residual connection)
 
     def quantize(self, num_bits=8):
         self.qconv3x1_1 = QConv2d(self.conv1x3_1, qi=True, qo=True, num_bits=num_bits)
