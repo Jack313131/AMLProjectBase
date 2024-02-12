@@ -4,6 +4,7 @@ import os
 import glob
 import torch
 import random
+import thop
 from PIL import Image
 import numpy as np
 from erfnet import ERFNet
@@ -12,6 +13,7 @@ import os.path as osp
 from argparse import ArgumentParser
 from ood_metrics import fpr_at_95_tpr, calc_metrics, plot_roc, plot_pr, plot_barcode
 from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve, average_precision_score
+import ConvertorDataParallel
 
 # Un "seed" è un valore iniziale utilizzato per inizializzare un generatore di numeri casuali. I generatori di numeri casuali sono algoritmi che producono una sequenza di numeri che non mostrano alcun pattern prevedibile.
 # Tuttavia, se inizializzi un generatore di numeri casuali con un valore di seed specifico, esso produrrà sempre la stessa sequenza di numeri ogni volta che viene eseguito.
@@ -77,7 +79,8 @@ def main():
     if "BiSeNet" in args.loadModel:
         model = BiSeNetV1(NUM_CLASSES, 'eval')
     if "erfnet" in args.loadModel:
-        model = ERFNet(NUM_CLASSES)
+        model = Net(NUM_CLASSES)
+        model2 =Net(NUM_CLASSES)
 
     if (not args.cpu):
         model = torch.nn.DataParallel(model).cuda()
@@ -110,6 +113,13 @@ def main():
     # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
     model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
     print("Model and weights LOADED successfully")
+    input = torch.randn(1, 3, 224, 224).to("cpu")
+    # print(input.device)
+    flops, params = thop.profile(model, inputs=(input,))
+    #flops2, params2 = thop.profile(model2, inputs=(input,))
+    print(f"FLOPs: {flops}")
+    #print(f"FLOPs: {flops2}")
+    #print(f"FLOPs different {flops - flops2}")
 
     if (args.backgroundAnomaly):
         print("Considering background as anomaly ...")
@@ -221,7 +231,7 @@ def main():
             ood_gts = np.where((ood_gts == 255), 1, ood_gts)
 
         if (args.backgroundAnomaly):
-            ood_gts = np.where((ood_gts == 1), 0, ood_gts)
+            #ood_gts = np.where((ood_gts == 1), 0, ood_gts)
             ood_gts = np.where((ood_gts == 255), 1, ood_gts)
 
         # Questa istruzione controlla se il valore 1 è presente nell'array delle etichette di ground truth. Il valore 1 una classe specifica (side walk ?), probabilmente associata a una certa tipologia di anomalia.
