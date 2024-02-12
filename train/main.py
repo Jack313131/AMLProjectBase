@@ -14,13 +14,17 @@ import gc
 import torch.nn.utils.prune as prune
 from PIL import Image, ImageOps
 from argparse import ArgumentParser
-import re
+
+from torch import nn
+import copy
+
 from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
-from thop import profile
+import torchvision.transforms as transforms
+
 from dataset import VOC12, cityscapes
 from transform import Relabel, ToLabel, Colorize
 from visualize import Dashboard
@@ -31,6 +35,7 @@ import importlib
 from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
+
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20  # pascal=22, cityscapes=20
@@ -92,21 +97,20 @@ class MyCoTransform(object):
             # la parte visibile dell'immagine sarà ora differente rispetto all'originale. Ad esempio, se l'immagine era stata spostata verso destra e in basso, il ritaglio rimuoverà parti dell'immagine originale dal lato destro e inferiore.
             input = input.crop((0, 0, input.size[0] - transX, input.size[1] - transY))
             target = target.crop((0, 0, target.size[0] - transX, target.size[1] - transY))
-
+        
         input = ToTensor()(input)
         normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         input = normalize(input)
 
         if (self.enc):
-            target = Resize(int(self.height / 8), Image.NEAREST)(
-                target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
+            target = Resize(int(self.height / 8), Image.NEAREST)(target)  # avviene un resize probabilmente per portare l'immagine ad avere dimensioni che poi saranno usate per la fase di convoluzione
         target = ToLabel()(target)
         # l'operazione di Relabel consiste per l'output target ovvero quello che già ha una classificazione per ogni pixel, di cambiare tutti i pixel con valore 255 a valore 19
         # questo perchè magari pixel 255 non ha una label associata mentre 19 è la label per classificazione generica (es : background)
         target = Relabel(255, 19)(target)
 
         return input, target
-
+    
 
 class CrossEntropyLoss2d(torch.nn.Module):
     # è progettata per lavorare con input bidimensionali (bidimensionali si intende con più di una dimensione). In contesti come la segmentazione delle immagini, ogni pixel dell'immagine viene classificato in una delle categorie.
@@ -165,13 +169,6 @@ def train(args, model, enc=False):
 
     # Ogni peso nel vettore è staticamente associato a una specifica classe per tutta la durata dell'addestramento del modello.
     # Quando inizializzi il vettore di pesi, ciascun peso è assegnato a una specifica classe. Ad esempio, in un vettore di pesi di dimensione 20, il primo peso potrebbe essere associato alla prima classe, il secondo peso alla seconda classe, e così via. Questa associazione non cambia durante l'addestramento
-
-    # In molti set di dati di classificazione, alcune classi possono essere molto più frequenti di altre. Ad esempio, in un set di dati di segmentazione stradale, la classe "strada" potrebbe essere molto più comune della classe "pedone".
-    # Senza un adeguato bilanciamento, un modello di machine learning potrebbe diventare parziale verso le classi più frequenti, imparando principalmente a riconoscerle e ignorando o non performando bene sulle classi meno frequenti.
-    # Assegnando pesi diversi alle diverse classi nella funzione di perdita, si può bilanciare l'importanza data ad ogni classe durante l'addestramento del modello. In generale, si assegna un peso maggiore alle classi meno frequenti e un peso minore alle classi più frequenti.
-    # Questo aiuta a garantire che il modello non ignori le classi meno frequenti. Quando si calcola la perdita per una previsione, il valore della perdita viene moltiplicato per il peso associato alla classe vera di quel dato campione. Quindi, errori in classi con peso maggiore contribuiscono di più alla perdita totale,
-    # il che spinge il modello a prestare maggiore attenzione a queste classi durante l'addestramento.
-    # Se la classe "pedone" è rara nel set di dati ma è molto importante riconoscerla correttamente (ad esempio, per motivi di sicurezza nella guida autonoma), assegnandole un peso maggiore nella funzione di perdita, si può incentivare il modello a migliorare la sua capacità di rilevare pedoni, nonostante la loro relativa rarità nel set di dati.
     weight = torch.ones(NUM_CLASSES)
     if (enc):
         weight[0] = 2.3653597831726
@@ -213,7 +210,6 @@ def train(args, model, enc=False):
         weight[16] = 10.289801597595
         weight[17] = 10.405355453491
         weight[18] = 10.138095855713
-
     weight[19] = 0
 
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
@@ -229,23 +225,25 @@ def train(args, model, enc=False):
 
     if args.cuda:
         weight = weight.cuda()
+    
     criterion = CrossEntropyLoss2d(weight)
     # print(type(criterion))
 
-    savedir = f'../save/{args.savedir}'
+    #savedir = f'../save/{args.savedir}'
+    drivedir = f'/content/drive/MyDrive{args.drivedir}'
 
     if (enc):
-        automated_log_path = savedir + "/automated_log_encoder.txt"
-        modeltxtpath = savedir + "/model_encoder.txt"
+        automated_log_path_drive = drivedir + "/automated_log_encoder.txt"
+        modeltxtpath_drive = drivedir + "/model_encoder.txt"
     else:
-        automated_log_path = savedir + "/automated_log.txt"
-        modeltxtpath = savedir + "/model.txt"
+        automated_log_path_drive = drivedir + "/automated_log.txt"
+        modeltxtpath_drive = drivedir + "/model.txt"
 
-    if (not os.path.exists(automated_log_path)):  # dont add first line if it exists
-        with open(automated_log_path, "a") as myfile:
+    if (not os.path.exists(automated_log_path_drive)):  # dont add first line if it exists
+        with open(automated_log_path_drive, "a") as myfile:
             myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
-
-    with open(modeltxtpath, "w") as myfile:
+    
+    with open(modeltxtpath_drive, "w") as myfile:
         myfile.write(str(model))
 
     # TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
@@ -283,16 +281,19 @@ def train(args, model, enc=False):
                                                   mode='triangular', cycle_momentum=False)  # scheduler 3
 
     start_epoch = 1
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=5e-5, max_lr=1e-3, step_size_up=20, mode='triangular', cycle_momentum=False) # scheduler 3
     if args.resume:
         # Must load weights, optimizer, epoch and best value.
         if enc:
-            filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
         else:
-            filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
 
-        assert os.path.exists(
-            filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
-        checkpoint = torch.load(filenameCheckpoint)
+        assert os.path.exists(filenameCheckpoint_drive), "Error: resume option was used but checkpoint was not found in folder"
+
+        checkpoint = torch.load(filenameCheckpoint_drive)
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
         start_epoch = checkpoint['epoch']
         if args.pruning > 0 and 'model' in checkpoint:
             model = checkpoint['model']
@@ -546,6 +547,7 @@ def train(args, model, enc=False):
 
         epoch_loss = []
         time_train = []
+        
 
         doIouTrain = args.iouTrain
         doIouVal = args.iouVal
@@ -598,21 +600,53 @@ def train(args, model, enc=False):
             # labels.requires_grad_(True)
             targets = labels
 
-            if "BiSeNet" in args.model:
-                outputs = model(inputs)
-                outputs = outputs[0]
-                outputs = outputs.float()
             if "erfnet" in args.model:
                 outputs = model(inputs, only_encode=enc)
+                #print("Outputs: ", outputs.shape)
 
+            # print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
+            # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
+            # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
+
+            # print(outputs.size())
+            # print(targets.shape)
+            # targets = targets.float()
             # Viene calcolata la perdita (o errore) utilizzando la funzione di perdita definita da CrossEntropyLoss2d per misurare la differenza tra le previsioni del modello (outputs) e le etichette vere (targets).
             # targets[:, 0] suggerisce che stai selezionando una specifica colonna o una parte specifica delle etichette target (?).
             loss = criterion(outputs, targets[:, 0])
-
+            optimizer.zero_grad()
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
+            # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
             # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
+            #             print(f"NaN or Inf found in gradients of {name}")
+
+            # for name, param in model.named_parameters():
+            #     if torch.isnan(param.data).any():
+            #         print(f"NaN found in weights of {name}")
+            #     if torch.isinf(param.data).any():
+            #         print(f"Inf found in weights of {name}")
+
+            # for name, param in model.named_parameters():
+            # if param.requires_grad:
+            # print(f"{name} - mean: {param.data.mean()}, std: {param.data.std()}")
+
+            # for name, param in model.named_parameters():
+            # if param.requires_grad:
+            # if param.grad is not None:
+            # print(f'Gradient stats - {name}: mean={param.grad.data.mean()}, std={param.grad.data.std()}')
+
+            # if epoch == 1 and step == 152:  # Assicurati che sia l'epoca 1 e lo step 151
+            # for name, param in model.named_parameters():
+            # if param.grad is not None:
+            # print(f"Gradients for {name}: mean={param.grad.mean()}, std={param.grad.std()}")
+            # else:
+            # print(f"No gradients for {name}")
 
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
@@ -622,7 +656,7 @@ def train(args, model, enc=False):
             scheduler.step()  ## scheduler 2
 
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
-            epoch_loss.append(loss.item())
+            epoch_loss.append()
             time_train.append(time.time() - start_time)
 
             if (doIouTrain):
@@ -691,6 +725,8 @@ def train(args, model, enc=False):
                     outputs = outputs.float()
                 if "erfnet" in args.model:
                     outputs = model(inputs, only_encode=enc)
+                if "ENet" in args.model:
+                    outputs = model(inputs)
 
                 loss = criterion(outputs, targets[:, 0])
                 epoch_loss_val.append(loss.item())
@@ -743,11 +779,29 @@ def train(args, model, enc=False):
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
         if enc:
-            filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
-            filenameBest = savedir + '/model_best_enc.pth.tar'
+            #filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+            #filenameBest = savedir + '/model_best_enc.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint_enc.pth.tar'
+            filenameBest_drive = drivedir + '/model_best_enc.pth.tar'
         else:
-            filenameCheckpoint = savedir + '/checkpoint.pth.tar'
-            filenameBest = savedir + '/model_best.pth.tar'
+            # filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+            # filenameBest = savedir + '/model_best.pth.tar'
+            filenameCheckpoint_drive = drivedir + '/checkpoint.pth.tar'
+            filenameBest_drive = drivedir + '/model_best.pth.tar'
+        # save_checkpoint({
+        #     'epoch': epoch + 1,
+        #     'arch': str(model),
+        #     'state_dict': model.state_dict(),
+        #     'best_acc': best_acc,
+        #     'optimizer': optimizer.state_dict(),
+        # }, is_best, filenameCheckpoint, filenameBest)
+        # save_checkpoint({
+        #     'epoch': epoch + 1,
+        #     'arch': str(model),
+        #     'state_dict': model.state_dict(),
+        #     'best_acc': best_acc,
+        #     'optimizer': optimizer.state_dict(),
+        # }, is_best, filenameCheckpoint_drive, filenameBest_drive)
         save_checkpoint({
             'epoch': epoch + 1,
             'arch': str(model),
@@ -757,27 +811,39 @@ def train(args, model, enc=False):
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict()
         }, is_best, filenameCheckpoint, filenameBest)
+            'scheduler': scheduler.state_dict(),
+            #quantization: 
+        }, is_best, filenameCheckpoint_drive, filenameBest_drive)
 
         # SAVE MODEL AFTER EPOCH
         if (enc):
-            filename = f'{savedir}/model_encoder-{epoch:03}.pth'
-            filenamebest = f'{savedir}/model_encoder_best.pth'
+            # filename = f'{savedir}/model_encoder-{epoch:03}.pth'
+            # filenamebest = f'{savedir}/model_encoder_best.pth'
+            filename_drive = f'{drivedir}/model_encoder-{epoch:03}.pth'
+            filenamebest_drive = f'{drivedir}/model_encoder_best.pth'
         else:
-            filename = f'{savedir}/model-{epoch:03}.pth'
-            filenamebest = f'{savedir}/model_best.pth'
+            # filename = f'{savedir}/model-{epoch:03}.pth'
+            # filenamebest = f'{savedir}/model_best.pth'
+            filename_drive = f'{drivedir}/model-{epoch:03}.pth'
+            filenamebest_drive = f'{drivedir}/model_best.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
-            torch.save(model.state_dict(), filename)
-            print(f'save: {filename} (epoch: {epoch})')
+            #torch.save(model.state_dict(), filename)
+            torch.save(model.state_dict(), filename_drive)
+            print(f'save: {filename_drive} (epoch: {epoch})')
         if (is_best):
             # if args.pruning > 0 :
             # model = myutils.remove_mask_from_model_with_pruning(model,args)
             torch.save(model.state_dict(), filenamebest)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
-                with open(savedir + "/best.txt", "w") as myfile:
+                # with open(savedir + "/best.txt", "w") as myfile:
+                #     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                with open(drivedir + "/best.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
             else:
-                with open(savedir + "/best_encoder.txt", "w") as myfile:
+                # with open(savedir + "/best_encoder.txt", "w") as myfile:
+                #     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
+                with open(drivedir + "/best_encoder.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))
 
                     # SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
@@ -847,12 +913,17 @@ def saveOnDrive(epoch, model, pathOriginal):
 
 
 def main(args):
-    savedir = f'../save/{args.savedir}'
+    #savedir = f'../save/{args.savedir}'
+    drivedir = f'/content/drive/MyDrive/{args.drivedir}'
 
-    if not os.path.exists(savedir):
-        os.makedirs(savedir)
+    # if not os.path.exists(savedir):
+    #     os.makedirs(savedir)
+    if not os.path.exists(drivedir):
+        assert("Drivedir does not exist")
 
-    with open(savedir + '/opts.txt', "w") as myfile:
+    # with open(savedir + '/opts.txt', "w") as myfile:
+    #     myfile.write(str(args))
+    with open(drivedir + '/opts.txt', "w") as myfile:
         myfile.write(str(args))
 
     # Load Model
@@ -864,7 +935,8 @@ def main(args):
         model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size, backbone=args.backbone)
     if "erfnet" in args.model and not args.backbone:
         model = model_file.Net(NUM_CLASSES)
-    copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    #copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
     if args.cuda:
         model = torch.nn.DataParallel(model).cuda()
@@ -946,6 +1018,7 @@ def main(args):
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
+
     model = train(args, model, False)  # Train decoder
     print("========== TRAINING FINISHED ===========")
 
@@ -958,6 +1031,7 @@ if __name__ == '__main__':
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)
+    parser.add_argument("--freezingBackbone", action='store_true')
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
