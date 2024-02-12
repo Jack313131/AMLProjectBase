@@ -240,6 +240,8 @@ def train(args, model, enc=False):
     if args.cuda:
         weight = weight.cuda()
     criterion = CrossEntropyLoss2d(weight)
+    if "ENet" in args.model:
+      criterion = torch.nn.CrossEntropyLoss(weight)
     # print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
@@ -640,6 +642,25 @@ def main(args):
     if args.state:
         # if args.state is provided then load this state for training
         # Note: this only loads initialized weights. If you want to resume a training use "--resume" option!!
+        try:
+            checkpoint = torch.load(args.state)
+            state_dict = checkpoint['state_dict']
+            # print(list(state_dict.keys()))  # Print the keys of the OrderedDict
+            if 'fullconv.weight' in state_dict:
+              print("IN")
+              weight = state_dict['fullconv.weight']
+              if weight.size() != (16, 20, 3, 3):
+                print("Resize")
+            # Resize the tensor to match the current model architecture
+                resized_weight = weight.new_zeros((16, 20, 3, 3))
+                resized_weight[:, :19, :, :] = weight  # Copy existing values
+                state_dict['fullconv.weight'] = resized_weight
+            print(state_dict['fullconv.weight'].shape)
+            state_dict = {"module."+k: v for k, v in state_dict.items()}
+            model.load_state_dict(state_dict)
+        except AssertionError:
+            model.load_state_dict(torch.load(args.state,
+                map_location=lambda storage, loc: storage))
         """
         try:
             model.load_state_dict(torch.load(args.state))
