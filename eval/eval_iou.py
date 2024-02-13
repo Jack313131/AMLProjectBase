@@ -216,7 +216,6 @@ def main(args):
         with torch.no_grad():
             outputsOriginal = modelOriginal(inputs)
             outputsMod = modelMod(inputs)
-            # outputsMod = modelMod.quantize_inference(inputs)
 
         finalOutput = outputsOriginal.max(1)[1].unsqueeze(1)
 
