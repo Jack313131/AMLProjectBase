@@ -1,16 +1,26 @@
 import contextlib
 import copy
 import sys
-
+import subprocess
 import torch.nn as nn
 import thop
 import torch
-import torch.nn.utils.prune as prune
+from pathlib import Path
 import logging
 import os
-import re
 from erfnet import non_bottleneck_1d,DownsamplerBlock
+from google.colab import drive
 
+args = None
+def run_command(command):
+    print(f"Running the command :  {command} ...")
+    try:
+        output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
+        print("Command execute correctly ...")
+        return True, output.decode('utf-8')
+    except subprocess.CalledProcessError as e:
+        print(f"Command NOT executed correctly. Error : {e.output.decode('utf-8')}")
+        return False, e.output.decode('utf-8')
 
 def convert_model_from_dataparallel(model):
 
@@ -18,6 +28,14 @@ def convert_model_from_dataparallel(model):
         model = model.module
 
     return model
+
+def connect_to_drive():
+    path_drive = "/content/drive/MyDrive"
+    if not os.path.exists(path_drive):
+        print("Connecting to drive ... ")
+        drive.mount('/content/drive')
+
+    print("Drive connected ... ")
 
 @contextlib.contextmanager
 def suppress_stdout():
@@ -42,76 +60,65 @@ def compute_difference_flop(modelOriginal,modelPruning):
 
     return flopsOriginal,flopsPruning,paramsOriginal,paramsPrunning
 
-def remove_mask_from_model_with_pruning(model,args):
-    if "encoder" in args.moduleErfnetPruning:
-        if args.typePruning.casefold().replace(" ", "") == "unstructured":
-            if isinstance(model, torch.nn.DataParallel):
-                for name, module in model.module.encoder.named_modules():
-                    if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bais')
-                    if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
-                        if len(args.listNumLayerPruning) == 0 or (match and str(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bais')
-            else:
-                for name, module in model.encoder.named_modules():
-                    if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bais')
-                    if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
-                        if len(args.listNumLayerPruning) == 0 or ( match and str(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bais')
-        elif args.typePruning.casefold().replace(" ", "") == "structured":
-            if isinstance(model, torch.nn.DataParallel):
-                for name, module in model.module.named_modules():
-                    if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bais')
-                    if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(layer, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(layer, name='bias')
-            else:
-                for name, module in model.named_modules():
-                    if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or (match and int(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(module, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(module, name='bias')
-                    if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
-                        match = re.search(r'\d+', name)
-                        if len(args.listNumLayerPruning) == 0 or ( match and int(match.group()) in args.listNumLayerPruning):
-                            for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules() if any(substring in name2 for substring in args.listInnerLayerPruning)]:
-                                prune.remove(module, name='weight')
-                                if hasattr(layer, 'bias') and layer.bias is not None:
-                                    prune.remove(module, name='bias')
+def remove_mask_from_model_with_pruning(model,state_dict):
 
-    return model
+    if isinstance(state_dict,nn.Module):
+        return state_dict
+    # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
+    own_state = model.state_dict()
+    # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
+    for name, param in state_dict.items():
+        if "weight_orig" in name:
+            # Il nome del parametro originale senza il suffisso '_orig'
+            original_name = name.replace("_orig", "")
+            # Recupera la maschera e il parametro originale
+            mask = state_dict[name.replace("weight_orig", "weight_mask")]
+            original_param = state_dict[name]
+            # Applica la maschera al parametro
+            pruned_param = original_param * mask
+            name = original_name
+            param = pruned_param
+            # original_name = original_name.replace("module.","")
+            # Aggiorna il parametro nel modello
+            # getattr(model, original_name).data.copy_(pruned_param)
+            # own_state[original_name].copy_(pruned_param)
 
-def remove_prunned_channels_from_model(modelOriginal, args):
+        if "weight_mask" not in name:
+            if name not in own_state:
+                # Se il nome inizia con "module.", questo suggerisce che il dizionario dei pesi proviene da un modello che è stato addestrato usando DataParallel,
+                # che aggiunge il prefisso "module." a tutti i nomi dei parametri. In questo caso, il codice cerca di adattare i nomi dei parametri rimuovendo "module." e tenta nuovamente di caricare il peso nel modello.
+                if name.startswith("module."):
+                    own_state[name.split("module.")[-1]].copy_(
+                        param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
+                else:
+                    print(name, " not loaded")
+                    continue
+            else:
+                # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
+                # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
+                # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
+                own_state[name].copy_(param)
+
+    return remove_prunned_channels_from_model(model)
+
+def print_and_save(output, file):
+    print(output)
+    file.write(output + "\n")
+
+def save_model_mod_on_drive(model,filename):
+    path_drive = args.path_drive
+    Path(path_drive).mkdir(parents=True,exist_ok=True)
+    dir_name = path_drive+filename.replace(".pth","")
+    Path(dir_name).mkdir(parents=True,exist_ok=True)
+    torch.save(model, path_drive+filename)
+    print(f"The model {filename} has been saved on the path : {dir_name}")
+
+def set_args(__args):
+    args = __args
+    args.add_argument("--path_drive", default="/content/drive/MyDrive/AML/")
+
+
+def remove_prunned_channels_from_model(modelOriginal):
     modelOriginal = convert_model_from_dataparallel(modelOriginal)
     modelFinal = copy.deepcopy(modelOriginal)
     new_input_channel_next_layer = 0
