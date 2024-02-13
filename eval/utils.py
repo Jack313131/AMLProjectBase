@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import shutil
 import sys
 import subprocess
 import torch.nn as nn
@@ -113,7 +114,7 @@ def print_and_save(output, file):
     print(output)
     file.write(output + "\n")
 
-def save_model_mod_on_drive(model,filename):
+def save_model_mod_on_drive(model,filename=args.modelFilenameDrive+".pth"):
     path_drive = args.path_drive
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","")
@@ -124,7 +125,7 @@ def save_model_mod_on_drive(model,filename):
 def set_args(__args):
     args = __args
     args.add_argument("--path_drive", default="/content/drive/MyDrive/AML/")
-
+    args.add_argument("--modelFilenameDrive", default=define_name_model(args))
 
 def remove_prunned_channels_from_model(modelOriginal):
     modelOriginal = convert_model_from_dataparallel(modelOriginal)
@@ -206,7 +207,7 @@ def remove_prunned_channels_from_model(modelOriginal):
 
     return modelFinal
 
-def quantize_modell_to_int8(model):
+def quantize_model_to_int8(model):
     print("Preparing the model for the quantization to int8")
     model.eval()
     model_fp32_prepared = prepare(model)
@@ -225,6 +226,66 @@ def quantize_modell_to_int8(model):
     model_int8 = convert(model_fp32_prepared)
 
     print("Saving the model ...")
-    #torch.save(model_int8.state_dict(), 'model_int8.pth')
+    torch.save(model_int8, f"{args.path_drive}/Models/Model_int8/{args.modelFilenameDrive}_model_int8.pth")
 
     return model_int8
+
+
+def define_name_model(args):
+    if args.pruning > 0:
+        quantized = f"_Quantized_{args.typeQuantization}"
+        typeNorm = f"_Norm_{args.typeNorm}" if args.typeNorm else ""
+        namePruning = f"PruningType_{args.typePruning}{typeNorm}_Value_{args.pruning}{quantized}"
+        if len(args.moduleErfnetPruning) > 0:
+            namePruning = namePruning + "_Module"
+            for module in args.moduleErfnetPruning:
+                namePruning = namePruning + f"_{module}"
+        if len(args.listLayerPruning) > 0:
+            namePruning = namePruning + "_Layer"
+            nameInnerStateMod = "("
+            for value in args.listInnerLayerPruning:
+                nameInnerStateMod = nameInnerStateMod + f"_{value}"
+            nameInnerStateMod += ")"
+            for layer in args.listLayerPruning:
+                namePruning = namePruning + f"_{layer}{nameInnerStateMod}"
+            numberLayer = "_AllLayer"
+            if len(args.listNumLayerPruning) > 0:
+                numberLayer = "_NumLayerPruning"
+                for number in args.listNumLayerPruning:
+                    numberLayer = numberLayer + f"_{number}"
+
+            namePruning = namePruning + numberLayer
+
+    return args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (
+        namePruning if args.pruning else "")
+
+def saveOnDrive(epoch=None, model=args.modelFilenameDrive, pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/"):
+    if not os.path.isdir(pathOriginal):
+        print(f"Path Original is wrong : {pathOriginal}")
+    drive = "/content/drive/MyDrive/"
+    if os.path.isdir(drive):
+        if not os.path.isdir(drive + f"AML/"):
+            os.mkdir(drive + f"AML/")
+        if not os.path.exists(drive + f"AML/{model}/"):
+            os.mkdir(drive + f"AML/{model}/")
+        if os.path.exists(pathOriginal + "/checkpoint.pth.tar"):
+            shutil.copy2(pathOriginal + "/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
+        if os.path.exists(pathOriginal + "/automated_log.txt"):
+            shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
+        if os.path.exists(pathOriginal + "/opts.txt"):
+            shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
+        if os.path.exists(pathOriginal + "/model.txt"):
+            shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
+        if os.path.exists(pathOriginal + "/pruning_setting.txt"):
+            shutil.copy2(pathOriginal + "/pruning_setting.txt", drive + f"AML/{model}/pruning_setting.txt")
+        if os.path.isfile(pathOriginal + "/model_best.pth"):
+            shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
+        if os.path.isfile(pathOriginal + "/result.txt"):
+            shutil.copy2(pathOriginal + "/result.txt", drive + f"AML/{model}/result.txt")
+        if epoch is not None:
+            print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
+        if epoch is None:
+            path_drive = f"{drive}AML/{model}/"
+            print(f"Saved on drive on the path {path_drive}")
+    else:
+        print("Drive is not linked ...")

@@ -183,6 +183,7 @@ def main(args):
     myutils.save_model_mod_on_drive(modelMod)
     print("Model and weights Mod LOADED successfully")
 
+    if "adaptLayer"modelMod
     calibrationQuantization = DataLoader(
         cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
         num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
@@ -326,19 +327,21 @@ def main(args):
     text_model = (f"The model is with pruning {features_model_changed[0]} (amount : {features_model_changed[1]} & norm = {features_model_changed[4]}) "
                   f"for the modules {features_model_changed[5]} applied on layers {num_layers}")
 
+
     dir_model = path_model_mod.replace(".pth","")
     dir_save_result = f"{myutils.args.path_drive}Models/{dir_model}/results.txt"
     print(f"Saving result on path : {dir_save_result}")
     # Apertura (o creazione se non esiste) del file in modalità di scrittura
     with open(dir_save_result, 'w') as file:
-        myutils.myutils.print_and_save("---------------------------------------", file)
+        myutils.print_and_save(text_model,file)
+        myutils.print_and_save("---------------------------------------", file)
         myutils.print_and_save(f"Took {time.time() - start} seconds", file)
         myutils.print_and_save("=======================================", file)
 
         # Il tuo codice commentato
-        # myutils.print_and_save(f"TOTAL IOU: {iou * 100}%", file)
+        # myutils.models(f"TOTAL IOU: {iou * 100}%", file)
 
-        myutils.print_and_save("Per-Class IoU:", file)
+        myutils.models("Per-Class IoU:", file)
         for i in range(len(iou_classes_str_original)):
             myutils.print_and_save(
                 f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- [Category Name]",
@@ -365,6 +368,19 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', action='store_true', default=not torch.cuda.is_available())
     parser.add_argument('--typeConfidence', default='MaxLogit')
     parser.add_argument("--temperature", default=1.0)
+    parser.add_argument("--freezingBackbone", action='store_true')
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch", type=int, default=1)
+    parser.add_argument("--pruning", type=float, default=0.5)
+    parser.add_argument("--typePruning", type=str, default="unstructured")
+    parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
+    parser.add_argument("--listLayerPruning", nargs='+', default=['non_bottleneck_1d', 'DownsamplerBlock'])
+    parser.add_argument("--listWeight", nargs='+', default=['weight'])
+    parser.add_argument("--typeNorm", type=int, default=None)
+    parser.add_argument("--listNumLayerPruning", nargs='+', help='', default=[])
+    parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
+    parser.add_argument('--loadWeights', default="../trained_models/erfnet_pretrained.pth")
+    parser.add_argument("--typeQuantization", type=str, default="float32")
+    parser.add_argument()
 
     myutils.set_args(parser.parse_args())
 
