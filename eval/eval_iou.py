@@ -317,5 +317,6 @@ if __name__ == '__main__':
     parser.add_argument()
 
     myutils.set_args(parser.parse_args())
+    myutils.connect_to_drive()
 
     main(parser.parse_args())
