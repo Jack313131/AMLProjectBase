@@ -179,8 +179,7 @@ def main(args):
 
     print("Loading model and weights Mod: " + path_model_mod)
 
-    modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,
-                                                   map_location=lambda storage, loc: storage),path_model_mod)
+    modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage),path_model_mod)
     myutils.save_model_mod_on_drive(modelMod)
     print("Model and weights Mod LOADED successfully")
 
