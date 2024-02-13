@@ -183,82 +183,17 @@ def main(args):
     myutils.save_model_mod_on_drive(modelMod)
     print("Model and weights Mod LOADED successfully")
 
-    if "adaptLayer"modelMod
-    calibrationQuantization = DataLoader(
-        cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
-        num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+    if "adaptLayer" in modelMod.state_dict():
+        myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
+                                            target_transform_cityscapes = target_transform_cityscapes, weight=weight)
 
-    # commando per forzare il modello ad essere in modelità valutazione
-    modelMod.train()
-
-    if torch.cuda.is_available():
-        modelMod = modelMod.to("cuda")
-        weight = weight.cuda()
-
-    criterion = CrossEntropyLoss2d(weight)
-    optimizer = Adam(modelOriginal.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
-    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.00001)
-
-    print("Start fine tuning pruning for adding layers ... ")
-    print("Freezing layer not named : adaptingInput")
-    for name, param in modelMod.named_parameters():
-        # Congela i parametri se 'adaptingInput' non è nel nome del layer
-        if 'adaptingInput' not in name:
-            param.requires_grad = False
-        else:
-            # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
-            param.requires_grad = True
-
-    for epoch in range(1, 15):
-        print("----- TRAINING - EPOCH", epoch, "-----")
-        epoch_loss = []
-        time_train = []
-        usedLr = 0
-        for param_group in optimizer.param_groups:
-            print("LEARNING RATE: ", param_group['lr'])
-            usedLr = float(param_group['lr'])
-
-        modelOriginal.train()
-
-        for step, (images, labels, _, _) in enumerate(calibrationQuantization):
-
-            start_time = time.time()
-
-            # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
-            # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
-            optimizer.zero_grad()
-
-            if torch.cuda.is_available():
-                images = images.cuda()
-                labels = labels.cuda()
-
-            images.requires_grad_(True)
-            inputs = images
-
-            # labels.requires_grad_(True)
-            targets = labels
-
-            outputsOriginal = modelMod(inputs)
-            # print("Outputs: ", outputsOriginal.shape)
-
-            loss = criterion(outputsOriginal, targets[:, 0])
-            optimizer.zero_grad()
-            # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
-            loss.backward()
-
-            optimizer.step()
-
-            scheduler.step()  ## scheduler 2
-            # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
-            epoch_loss.append(loss.item())
-            time_train.append(time.time() - start_time)
-            if step % 50 == 0:
-                average = sum(epoch_loss) / len(epoch_loss)
-                print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})',
-                      "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
-
-
-    print("Model Pruned and Quantized ... ")
+    if args.typeQuantization == "int8":
+        print("Applying quantization to int8 ... ")
+        modelMod = myutils.quantize_model_to_int8(modelMod,input_transform_cityscapes=input_transform_cityscapes,
+                                            target_transform_cityscapes = target_transform_cityscapes)
+    if args.typeQuantization == "float16":
+        print("Applying model to float16 ... ")
+        modelMod = modelMod.half()
 
     if (not os.path.exists(args.datadir)):
         print("Error: datadir could not be loaded")

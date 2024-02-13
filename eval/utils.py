@@ -3,6 +3,8 @@ import copy
 import shutil
 import sys
 import subprocess
+import time
+
 import torch.nn as nn
 import thop
 import torch
@@ -10,9 +12,12 @@ from pathlib import Path
 import logging
 import os
 from PIL import Image
+from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
 
+from eval.eval_iou import CrossEntropyLoss2d
 from eval.transform import ToLabel, Relabel
 from train.dataset import cityscapes
 from erfnet import non_bottleneck_1d,DownsamplerBlock
@@ -115,7 +120,7 @@ def print_and_save(output, file):
     file.write(output + "\n")
 
 def save_model_mod_on_drive(model,filename=args.modelFilenameDrive+".pth"):
-    path_drive = args.path_drive
+    path_drive = args.path_drive+"/Models/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
@@ -207,14 +212,11 @@ def remove_prunned_channels_from_model(modelOriginal):
 
     return modelFinal
 
-def quantize_model_to_int8(model):
+def quantize_model_to_int8(model,input_transform_cityscapes,target_transform_cityscapes):
     print("Preparing the model for the quantization to int8")
     model.eval()
     model_fp32_prepared = prepare(model)
     model_fp32_prepared.eval()
-    input_transform_cityscapes = Compose([Resize(512, Image.BILINEAR),ToTensor(),])
-    target_transform_cityscapes = Compose([
-    Resize(512, Image.NEAREST),Relabel(255, 19),])
     calibration_dataloader = DataLoader(
         cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset='val'),
         num_workers=torch.cuda.device_count(), batch_size=6, shuffle=False)
@@ -229,7 +231,6 @@ def quantize_model_to_int8(model):
     torch.save(model_int8, f"{args.path_drive}/Models/Model_int8/{args.modelFilenameDrive}_model_int8.pth")
 
     return model_int8
-
 
 def define_name_model(args):
     if args.pruning > 0:
@@ -259,6 +260,83 @@ def define_name_model(args):
     return args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (
         namePruning if args.pruning else "")
 
+def training_new_layer_adapting(model,input_transform_cityscapes,target_transform_cityscapes,weight):
+    loader_finetuning_adapting_layers = DataLoader(
+        cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
+        num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+
+    # commando per forzare il modello ad essere in modelità valutazione
+    model.train()
+
+    if torch.cuda.is_available():
+        model = model.to("cuda")
+        weight = weight.cuda()
+
+    criterion = CrossEntropyLoss2d(weight)
+    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
+    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.00001)
+
+    print("Start fine tuning pruning for adding layers ... ")
+    print("Freezing layer not named : adaptingInput")
+    for name, param in model.named_parameters():
+        # Congela i parametri se 'adaptingInput' non è nel nome del layer
+        if 'adaptingInput' not in name:
+            param.requires_grad = False
+        else:
+            # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
+            param.requires_grad = True
+
+    for epoch in range(1, 15):
+        print("----- TRAINING - EPOCH", epoch, "-----")
+        epoch_loss = []
+        time_train = []
+        usedLr = 0
+        for param_group in optimizer.param_groups:
+            print("LEARNING RATE: ", param_group['lr'])
+            usedLr = float(param_group['lr'])
+
+        model.train()
+
+        for step, (images, labels, _, _) in enumerate(calibrationQuantization):
+
+            start_time = time.time()
+
+            # Prima di calcolare i gradienti per l'epoca corrente, è necessario azzerare i gradienti accumulati dalla bacth precedente.
+            # Questo è essenziale perché, per impostazione predefinita, i gradienti si sommano in PyTorch per consentire l'accumulo di gradienti in più passaggi.
+            optimizer.zero_grad()
+
+            if torch.cuda.is_available():
+                images = images.cuda()
+                labels = labels.cuda()
+
+            images.requires_grad_(True)
+            inputs = images
+
+            # labels.requires_grad_(True)
+            targets = labels
+
+            outputs = model(inputs)
+            # print("Outputs: ", outputsOriginal.shape)
+
+            loss = criterion(outputs, targets[:, 0])
+            optimizer.zero_grad()
+            # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
+            loss.backward()
+
+            optimizer.step()
+
+            scheduler.step()  ## scheduler 2
+            # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
+            epoch_loss.append(loss.item())
+            time_train.append(time.time() - start_time)
+            if step % 50 == 0:
+                average = sum(epoch_loss) / len(epoch_loss)
+                print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})',
+                      "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
+
+    print("Model Pruned Completely ... ")
+    save_model_mod_on_drive(model=model)
+    print(f"Model Pruned Completely has been saved on the path {args.path_drive}/Models/{args.modelFilenameDrive}/")
 def saveOnDrive(epoch=None, model=args.modelFilenameDrive, pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/"):
     if not os.path.isdir(pathOriginal):
         print(f"Path Original is wrong : {pathOriginal}")
