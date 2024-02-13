@@ -8,8 +8,16 @@ import torch
 from pathlib import Path
 import logging
 import os
+from PIL import Image
+from torchvision.transforms import ToTensor, ToPILImage
+from torch.utils.data import DataLoader
+
+from eval.transform import ToLabel, Relabel
+from train.dataset import cityscapes
 from erfnet import non_bottleneck_1d,DownsamplerBlock
 from google.colab import drive
+from torch.quantization import quantize_dynamic, prepare, convert
+from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 
 args = None
 def run_command(command):
@@ -197,3 +205,26 @@ def remove_prunned_channels_from_model(modelOriginal):
 
 
     return modelFinal
+
+def quantize_modell_to_int8(model):
+    print("Preparing the model for the quantization to int8")
+    model.eval()
+    model_fp32_prepared = prepare(model)
+    model_fp32_prepared.eval()
+    input_transform_cityscapes = Compose([Resize(512, Image.BILINEAR),ToTensor(),])
+    target_transform_cityscapes = Compose([
+    Resize(512, Image.NEAREST),Relabel(255, 19),])
+    calibration_dataloader = DataLoader(
+        cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset='val'),
+        num_workers=torch.cuda.device_count(), batch_size=6, shuffle=False)
+    print("Starting calibration ... ")
+    for batch in calibration_dataloader:
+        model_fp32_prepared(batch)
+
+    print("Staring conversation model to int8 ...")
+    model_int8 = convert(model_fp32_prepared)
+
+    print("Saving the model ...")
+    #torch.save(model_int8.state_dict(), 'model_int8.pth')
+
+    return model_int8

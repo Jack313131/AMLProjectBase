@@ -5,7 +5,7 @@ import zipfile
 import json
 import importlib
 import sys
-import cityscapesscripts.preparation.createTrainIdLabelImgs
+from cityscapesscripts.preparation.createTrainIdLabelImgs import main
 
 def save_credentials_cityscapes_dataset():
     filepath = "/root/.local/share/cityscapesscripts/credentials.json"
@@ -73,7 +73,7 @@ def git_clone(package):
 
 if __name__ == '__main__':
     print("Start preparing the environment ...")
-    rootPath = '/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AnomalySegmentation_CourseProjectBaseCode-main/dataset'
+    rootPath = '/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/Dataset Cityscapes Extra/gtCoarse/'
     os.chdir(rootPath)
     os.environ['CITYSCAPES_DATASET'] = f"{rootPath}"
     #extracted_folder_path = f'/{rootPath}/AnomalySegmentation_CourseProjectBaseCode/'
@@ -92,9 +92,10 @@ if __name__ == '__main__':
     #     run_command(f"csDownload {zip}")
     #     data_loader(f"/{rootPath}/{zip}", extracted_folder_path=extracted_folder_path)
 
-    createTrainIdLabelImgs_module = importlib.import_module("cityscapesscripts.preparation.createTrainIdLabelImgs")
-    createTrainIdLabelImgs = createTrainIdLabelImgs_module.main
-    createTrainIdLabelImgs()
+    #createTrainIdLabelImgs_module = importlib.import_module("cityscapesscripts.preparation.createTrainIdLabelImgs")
+    #createTrainIdLabelImgs = createTrainIdLabelImgs_module.main
+    #createTrainIdLabelImgs()
+    main()
 
     print("Environment ready  ...")
 

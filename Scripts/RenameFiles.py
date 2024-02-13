@@ -3,10 +3,10 @@ import shutil
 from pathlib import Path
 
 # Percorso della directory sorgente
-source_dir = Path('/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AnomalySegmentation_CourseProjectBaseCode-main/dataset')
+source_dir = Path('/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/Dataset Cityscapes Extra/gtCoarse/')
 
 # Percorso della directory di destinazione
-destination_dir = Path('/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AnomalySegmentation_CourseProjectBaseCode-main/dataset2')
+destination_dir = Path('/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/Dataset Cityscapes Extra/gtCoarse/gtFine')
 
 # Crea la directory di destinazione se non esiste
 destination_dir.mkdir(parents=True, exist_ok=True)
