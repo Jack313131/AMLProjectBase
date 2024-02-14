@@ -18,10 +18,10 @@ from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
 
 from main import CrossEntropyLoss2d
-from eval.transform import ToLabel, Relabel
-from train.dataset import cityscapes
+from transform import ToLabel, Relabel
+from dataset import cityscapes
 from erfnet import non_bottleneck_1d,DownsamplerBlock
-#from google.colab import drive
+from google.colab import drive
 from torch.quantization import quantize_dynamic, prepare, convert
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 
@@ -47,7 +47,7 @@ def connect_to_drive():
     path_drive = "/content/drive/MyDrive"
     if not os.path.exists(path_drive):
         print("Connecting to drive ... ")
-        #drive.mount('/content/drive')
+        drive.mount('/content/drive')
 
     print("Drive connected ... ")
 

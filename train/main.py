@@ -310,13 +310,13 @@ def train(args, model, enc=False):
                     total = module.weight.nelement()
                     zeros = torch.sum(module.weight == 0)
                     print(
-                        f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
+                        f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights")
                 if args.typePruning == "structured" and hasattr(module, 'weight') and hasattr(module, 'weight_mask'):
                     original_out_channels = module.weight.size()[0]
                     non_zero_filters = module.weight_mask.data.sum(dim=(1, 2, 3)) != 0
                     new_out_channels = non_zero_filters.long().sum().item()
                     if new_out_channels != original_out_channels:
-                        print(f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning * 100} passing from {original_out_channels} to {new_out_channels} layers\n")
+                        print(f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning * 100}% passing from {original_out_channels} to {new_out_channels} layers")
         del checkpoint
         gc.collect()
 
@@ -526,7 +526,7 @@ def train(args, model, enc=False):
                     if new_out_channels != original_out_channels:
                         with open(pruning_setting_path, 'a') as file:
                             file.write(
-                                f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning*100} passing from {original_out_channels} to {new_out_channels} layers\n")
+                                f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning*100}% passing from {original_out_channels} to {new_out_channels} layers\n")
 
 
     for epoch in range(start_epoch, args.num_epochs + 1):
@@ -759,7 +759,7 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filenamebest)
             if args.pruning > 0 :
                 print("Saving also the model without pruned layers ... ")
-                model = myutils.remove_mask_from_model_with_pruning(model,args)
+                model = myutils.remove_mask_from_model_with_pruning(model,model.state_dict())
                 myutils.save_model_mod_on_drive(model,args)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
@@ -932,10 +932,13 @@ if __name__ == '__main__':
     parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
     parser.add_argument('--loadWeights', default="../trained_models/erfnet_pretrained.pth")
 
+    path_project = "./"
+    if os.path.exists('/content/AMLProjectBase'):
+        path_project = '/content/AMLProjectBase/'
     if os.path.basename(os.getcwd()) != "train":
-        os.chdir("./train")
+        os.chdir(f"{path_project}train")
 
     args = myutils.set_args(parser.parse_args())
-    myutils.connect_to_drive()
+    #myutils.connect_to_drive()
 
     main(args)
