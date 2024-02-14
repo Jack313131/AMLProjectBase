@@ -151,3 +151,20 @@ class ERFNet(nn.Module):
             output = self.encoder(input)    #predict=False by default
             return self.decoder.forward(output)
 
+class Net(nn.Module):
+    def __init__(self, num_classes, encoder=None):  #use encoder to pass pretrained encoder
+        super().__init__()
+
+        if (encoder == None):
+            self.encoder = Encoder(num_classes)
+        else:
+            self.encoder = encoder
+        self.decoder = Decoder(num_classes)
+
+    def forward(self, input, only_encode=False):
+        if only_encode:
+            return self.encoder.forward(input, predict=True)
+        else:
+            output = self.encoder(input)    #predict=False by default
+            return self.decoder.forward(output)
+

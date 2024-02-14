@@ -2,6 +2,7 @@
 # Nov 2017
 # Eduardo Romera
 #######################
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -9,16 +10,19 @@ import torch.nn.functional as F
 import os
 import importlib
 import time
-
+from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from PIL import Image
 from argparse import ArgumentParser
 
 from torch.autograd import Variable
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 from torchvision.transforms import ToTensor, ToPILImage
 
+import utils as myutils
 from dataset import cityscapes
+# from erfnet import ERFNet
 from erfnet import ERFNet
 from transform import Relabel, ToLabel, Colorize
 from iouEval import iouEval, getColorEntry
@@ -55,28 +59,99 @@ input_transform_cityscapes = Compose([
 target_transform_cityscapes = Compose([
     Resize(512, Image.NEAREST),
     ToLabel(),
-    Relabel(255, 19),   #ignore label to 19
+    Relabel(255, 19),  # ignore label to 19
 ])
 
+
+class CrossEntropyLoss2d(torch.nn.Module):
+    # è progettata per lavorare con input bidimensionali (bidimensionali si intende con più di una dimensione). In contesti come la segmentazione delle immagini, ogni pixel dell'immagine viene classificato in una delle categorie.
+    # Pertanto, l'output del modello e il target (ground truth) sono immagini bidimensionali, dove ogni pixel ha una classe associata.
+    # Pertanto, l'output di un modello di segmentazione delle immagini non è semplicemente un'immagine 2D, ma un tensore con dimensioni [batch_size, numero_di_classi, altezza, larghezza].
+    # In questo modo, il modello può prevedere la classe di ciascun pixel per ogni immagine nel batch.
+    # CrossEntropyLoss2d è ideale per questo scopo perché calcola una perdita per ogni pixel dell'immagine, basandosi su quanto bene il modello predice la classe di quel pixel rispetto alla classe effettiva.
+
+    def __init__(self, weight=None, ignores_index=None):
+        super().__init__()
+
+        # Questo inizializza la Negative Log Likelihood Loss in 2D (NLLLoss2d), questa è una funzione di perdita utilizzata in problemi di classificazione e segmentazione delle immagini, dove l'obiettivo è classificare ciascun pixel dell'immagine
+        # NLLLoss lavora con log-probabilità, non con probabilità dirette. Si presume che l'output del modello (le previsioni) siano log-probabilità di ciascuna classe. Queste log-probabilità sono tipicamente ottenute applicando la funzione log_softmax ai logits (l'output grezzo del modello prima dell'applicazione di una funzione di attivazione come softmax).
+        # Nella segmentazione delle immagini, hai una mappa di etichettatura (o immagine target) dove ogni pixel ha una etichetta di classe assegnata. La NLLLoss in 2D calcola la perdita per ogni pixel individualmente. Per un dato pixel, la perdita è il negativo del logaritmo della probabilità predetta per la classe vera di quel pixel. Matematicamente, per un pixel con classe vera c,
+        # se pc è la probabilità logaritmica predetta per quella classe, la perdita per quel pixel è -pc
+        if ignores_index is not None:
+            self.loss = torch.nn.NLLLoss(weight, ignore_index=ignores_index)
+        else:
+            self.loss = torch.nn.NLLLoss(weight)
+
+    def forward(self, outputs, targets):
+
+        # targets = targets.long()
+
+        # Converti i outputs in float32 per la computazione della loss
+        # outputs = outputs.float()
+
+        # if targets.dtype != torch.long:
+        # targets = targets.long()
+
+        # outputs = torch.clamp(outputs, min=-3, max=3)
+        # reg_term = 0.1 * torch.norm(outputs, p=2, dim=1).mean()
+
+        # outputs = torch.clamp(outputs, min=-5, max=5)
+        # outputs = outputs.to(torch.float64)
+        # targets = targets.double()
+        # outputs sono le previsioni date dal modello (output sono in forma di logits, ossia valori grezzi non normalizzati, per ciascuna classe e per ogni pixel.), mentre target il ground truth (Queste sono le etichette vere che si desidera che il modello impari a predire.)
+        # prima di passare al confronto tra previsioni del modello e ground truth, la predizione del modello viene passata ad una softmax per ottenere un vettore di probabilità, dove ogni valore rappresenta la probabilità che un dato pixel appartenga a una particolare classe.
+        # Poi, self.loss, che è la funzione NLLLoss2d, viene applicata per calcolare la perdita effettiva. Questa funzione calcola la log likelihood negativa tra le previsioni (dopo aver applicato log_softmax) e le etichette vere.
+        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)  # + reg_term
+
+
 def main(args):
+    weight = torch.ones(NUM_CLASSES)
+
+    weight[0] = 2.8149201869965
+    weight[1] = 6.9850029945374
+    weight[2] = 3.7890393733978
+    weight[3] = 9.9428062438965
+    weight[4] = 9.7702074050903
+    weight[5] = 9.5110931396484
+    weight[6] = 10.311357498169
+    weight[7] = 10.026463508606
+    weight[8] = 4.6323022842407
+    weight[9] = 9.5608062744141
+    weight[10] = 7.8698215484619
+    weight[11] = 9.5168733596802
+    weight[12] = 10.373730659485
+    weight[13] = 6.6616044044495
+    weight[14] = 10.260489463806
+    weight[15] = 10.287888526917
+    weight[16] = 10.289801597595
+    weight[17] = 10.405355453491
+    weight[18] = 10.138095855713
+    weight[19] = 0
 
     print(f"Evaluation of mIoU using the metrics : {args.typeConfidence}")
 
     modelpath = args.loadDir + args.loadModel
     weightspath = args.loadDir + args.loadWeights
 
-    print ("Loading model: " + modelpath)
-    print ("Loading weights: " + weightspath)
+    if args.loadWeightsPruned:
+        path_model_mod = args.loadDir + args.loadWeightsPruned
+    if args.loadModelPruned:
+        path_model_mod = args.loadDir + args.loadModelPruned
 
-    model = ERFNet(NUM_CLASSES)
+    print("Loading model Original: " + modelpath)
+    print("Loading weights Original: " + weightspath)
 
-    #model = torch.nn.DataParallel(model)
+
+    modelOriginal = ERFNet(NUM_CLASSES)
+    modelMod = ERFNet(NUM_CLASSES)
+
+    # modelOriginal = torch.nn.DataParallel(modelOriginal)
     if (not args.cpu):
-        model = torch.nn.DataParallel(model).cuda()
+        modelOriginal = torch.nn.DataParallel(modelOriginal).cuda()
 
     # La funzione load_my_state_dict nel codice che hai fornito è progettata per caricare i pesi (o parametri) di un modello di machine learning da un file salvato
-    # La funzione accetta due argomenti: model, che è il modello di machine learning in cui si desidera caricare i pesi, e state_dict, che è un dizionario contenente i pesi da caricare.
-    def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
+    # La funzione accetta due argomenti: modelOriginal, che è il modello di machine learning in cui si desidera caricare i pesi, e state_dict, che è un dizionario contenente i pesi da caricare.
+    def load_my_state_dict(model, state_dict):  # custom function to load modelOriginal when not all dict elements
         # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
         own_state = model.state_dict()
         # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
@@ -95,23 +170,41 @@ def main(args):
                 # copy_ è una funzione in-place di PyTorch, il che significa che modifica direttamente il contenuto del tensore a cui si applica.
                 # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
                 own_state[name].copy_(param)
-        return model  # l'aggiornamento diretto dei pesi viene fatto copiando i nuovi valori dei pesi nei opportuni layer del own_state il quale tiene un puntatore dei vari layer (cosi la modifica si propaga subito anche al modello di partenza)
-
+        return model
     # torch.load è una funzione in PyTorch che carica un oggetto salvato da un file. Questo oggetto può essere qualsiasi cosa che sia stata salvata precedentemente con torch.save, come un modello, un dizionario di stato del modello, un tensore, ecc.
     # map_location è un argomento di torch.load che specifica come e dove i tensori salvati devono essere mappati in memoria. Può essere utilizzato per forzare tutti i tensori ad essere caricati su CPU o su una specifica GPU, o per mapparli da una configurazione di hardware a un'altra.
     # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
-    model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
-    print ("Model and weights LOADED successfully")
+    modelOriginal = load_my_state_dict(modelOriginal, torch.load(weightspath, map_location=lambda storage, loc: storage))
+    print("Model and weights Original LOADED successfully")
 
-    # commando per forzare il modello ad essere in modelità valutazione
-    model.eval()
+    print("Loading model and weights Mod: " + path_model_mod)
 
-    if(not os.path.exists(args.datadir)):
-        print ("Error: datadir could not be loaded")
+    modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
+    if args.loadWeightsPruned:
+        myutils.save_model_mod_on_drive(model=modelMod,args=args)
+    print("Model and weights Mod LOADED successfully")
 
-    loader = DataLoader(cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+    if "adaptLayer" in modelMod.state_dict():
+        myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
+                                            target_transform_cityscapes = target_transform_cityscapes, weight=weight,args=args)
 
-    iouEvalVal = iouEval(NUM_CLASSES)
+    if args.typeQuantization == "int8":
+        print("Applying quantization to int8 ... ")
+        modelMod = myutils.quantize_model_to_int8(modelMod,input_transform_cityscapes=input_transform_cityscapes,
+                                            target_transform_cityscapes = target_transform_cityscapes,args=args)
+    if args.typeQuantization == "float16":
+        print("Applying model to float16 ... ")
+        modelMod = modelMod.half()
+
+    if (not os.path.exists(args.datadir)):
+        print("Error: datadir could not be loaded")
+
+    loader = DataLoader(
+        cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
+        num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+
+    iouEvalValOriginal = iouEval(NUM_CLASSES)
+    iouEvalValMod = iouEval(NUM_CLASSES)
 
     start = time.time()
 
@@ -122,81 +215,114 @@ def main(args):
 
         inputs = Variable(images)
         with torch.no_grad():
-            outputs = model(inputs)
+            outputsOriginal = modelOriginal(inputs)
+            outputsMod = modelMod(inputs)
 
-        finalOutput = outputs.max(1)[1].unsqueeze(1)
+        finalOutput = outputsOriginal.max(1)[1].unsqueeze(1)
 
         if args.typeConfidence.casefold().replace(" ", "") == "msp":
             temperature = args.temperature
-            scaledresult = outputs / temperature
-            probs = torch.nn.functional.softmax(scaledresult, 1)  # result = model(images), F = torch.nn.functional
+            scaledresult = outputsOriginal / temperature
+            probs = torch.nn.functional.softmax(scaledresult, 1)  # result = modelOriginal(images), F = torch.nn.functional
             _, predicted_classes = torch.max(probs, dim=1)
             finalOutput = predicted_classes.unsqueeze(1)
         if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
             eps = 1e-10
-            probs = torch.nn.functional.softmax(outputs, dim=1)
-            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),torch.log(torch.tensor(probs.shape[1]) + eps))
+            probs = torch.nn.functional.softmax(outputsOriginal, dim=1)
+            entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),
+                                torch.log(torch.tensor(probs.shape[1]) + eps))
             confidence = 1 - entropy
             weighted_output = probs * confidence.unsqueeze(1)
             _, predicted_classes = torch.max(weighted_output, dim=1)
             finalOutput = predicted_classes.unsqueeze(1)
 
-        iouEvalVal.addBatch(finalOutput.data, labels)
+        iouEvalValOriginal.addBatch(finalOutput.data, labels)
+        iouEvalValMod.addBatch(outputsMod.max(1)[1].unsqueeze(1).data, labels)
 
         filenameSave = filename[0].split("leftImg8bit/")[1]
 
-        #print (step, filenameSave)
+        # print (step, filenameSave)
+
+    iouValOriginal, iou_classes_original = iouEvalValOriginal.getIoU()
+    iouValMod, iou_classes_mod = iouEvalValMod.getIoU()
+
+    iou_classes_str_original = []
+    for i in range(iou_classes_original.size(0)):
+        iouStr = getColorEntry(iou_classes_original[i]) + '{:0.2f}'.format(iou_classes_original[i] * 100) + '\033[0m'
+        iou_classes_str_original.append(iouStr)
+
+    iou_classes_str_mod = []
+    for i in range(iou_classes_mod.size(0)):
+        iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
+        iou_classes_str_mod.append(iouStr)
+
+    # Assicurati che le variabili iou_classes_str_original e iou_classes_str_mod siano definite
+    features_model_changed = path_model_mod.split("-")[2:]
+    num_layers = str(features_model_changed[features_model_changed.index('Layer'):])
+    text_model = (f"The model is with pruning {features_model_changed[0]} (amount : {features_model_changed[1]} & norm = {features_model_changed[4]}) "
+                  f"for the modules {features_model_changed[5]} applied on layers {num_layers}")
 
 
-    iouVal, iou_classes = iouEvalVal.getIoU()
+    dir_model = path_model_mod.replace(".pth","")
+    dir_save_result = f"{myutils.args.path_drive}Models/{dir_model}/results.txt"
+    print(f"Saving result on path : {dir_save_result}")
+    # Apertura (o creazione se non esiste) del file in modalità di scrittura
+    with open(dir_save_result, 'w') as file:
+        myutils.print_and_save(text_model,file)
+        myutils.print_and_save("---------------------------------------", file)
+        myutils.print_and_save(f"Took {time.time() - start} seconds", file)
+        myutils.print_and_save("=======================================", file)
 
-    iou_classes_str = []
-    for i in range(iou_classes.size(0)):
-        iouStr = getColorEntry(iou_classes[i])+'{:0.2f}'.format(iou_classes[i]*100) + '\033[0m'
-        iou_classes_str.append(iouStr)
+        # Il tuo codice commentato
+        # myutils.models(f"TOTAL IOU: {iou * 100}%", file)
 
-    print("---------------------------------------")
-    print("Took ", time.time()-start, "seconds")
-    print("=======================================")
-    #print("TOTAL IOU: ", iou * 100, "%")
-    print("Per-Class IoU:")
-    print(iou_classes_str[0], "Road")
-    print(iou_classes_str[1], "sidewalk")
-    print(iou_classes_str[2], "building")
-    print(iou_classes_str[3], "wall")
-    print(iou_classes_str[4], "fence")
-    print(iou_classes_str[5], "pole")
-    print(iou_classes_str[6], "traffic light")
-    print(iou_classes_str[7], "traffic sign")
-    print(iou_classes_str[8], "vegetation")
-    print(iou_classes_str[9], "terrain")
-    print(iou_classes_str[10], "sky")
-    print(iou_classes_str[11], "person")
-    print(iou_classes_str[12], "rider")
-    print(iou_classes_str[13], "car")
-    print(iou_classes_str[14], "truck")
-    print(iou_classes_str[15], "bus")
-    print(iou_classes_str[16], "train")
-    print(iou_classes_str[17], "motorcycle")
-    print(iou_classes_str[18], "bicycle")
-    print("=======================================")
-    iouStr = getColorEntry(iouVal)+'{:0.2f}'.format(iouVal*100) + '\033[0m'
-    print ("MEAN IoU: ", iouStr, "%")
+        myutils.models("Per-Class IoU:", file)
+        for i in range(len(iou_classes_str_original)):
+            myutils.print_and_save(
+                f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- [Category Name]",
+                file)
+
+        myutils.print_and_save("=======================================", file)
+        iouStr = getColorEntry(iouValOriginal) + '{:0.2f}'.format(iouValOriginal * 100) + '\033[0m'
+        iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
+        myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
 
 if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--state')
 
-    parser.add_argument('--loadDir',default="../trained_models/")
+    parser.add_argument('--loadDir', default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
+    parser.add_argument('--loadWeightsPruned', default="")
+    parser.add_argument("--loadModelPruned",default="")
     parser.add_argument('--loadModel', default="erfnet.py")
-    parser.add_argument('--subset', default="val")  #can be val or train (must have labels)
+    parser.add_argument('--subset', default="val")  # can be val or train (must have labels)
     parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/cityscapes/")
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=1)
-    parser.add_argument('--cpu', action='store_true')
+    parser.add_argument('--cpu', action='store_true', default=not torch.cuda.is_available())
     parser.add_argument('--typeConfidence', default='MaxLogit')
-    parser.add_argument("--temperature", default = 1.0)
+    parser.add_argument("--temperature", default=1.0)
+    parser.add_argument("--freezingBackbone", action='store_true')
+    parser.add_argument("--saveCheckpointDriveAfterNumEpoch", type=int, default=1)
+    parser.add_argument("--pruning", type=float, default=None)
+    parser.add_argument("--typePruning", type=str, default=None)
+    parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
+    parser.add_argument("--listLayerPruning", nargs='+', default=[])
+    parser.add_argument("--listWeight", nargs='+', default=['weight'])
+    parser.add_argument("--typeNorm", type=int, default=None)
+    parser.add_argument("--listNumLayerPruning", nargs='+', help='', default=[])
+    parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
+    parser.add_argument("--typeQuantization", type=str, default="float32")
+
+    myutils.set_args(parser.parse_args())
+    #myutils.connect_to_drive()
+
+    path_project = "./"
+    if os.path.exists('/content/AMLProjectBase'):
+        path_project = '/content/AMLProjectBase/'
+    if os.path.basename(os.getcwd()) != "eval":
+        os.chdir(f"{path_project}eval")
 
     main(parser.parse_args())
