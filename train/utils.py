@@ -358,7 +358,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
     print(f"Model Pruned Completely has been saved on the path {args.path_drive}/Models/{args.modelFilenameDrive}/")
-def saveOnDrive(epoch=None, model="", pathOriginal=""):
+def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
     pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/"
     model = args.modelFilenameDrive
     if not os.path.isdir(pathOriginal):

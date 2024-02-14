@@ -759,7 +759,9 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filenamebest)
             if args.pruning > 0 :
                 print("Saving also the model without pruned layers ... ")
-                model = myutils.remove_mask_from_model_with_pruning(model,model.state_dict())
+                modelPrunned = shutil.copy.deepcopy(model)
+                modelPrunned = myutils.convert_model_from_dataparallel(modelPrunned)
+                myutils.remove_mask_from_model_with_pruning(modelPrunned,modelPrunned.state_dict())
                 myutils.save_model_mod_on_drive(model,args)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
@@ -776,7 +778,7 @@ def train(args, model, enc=False):
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
             modelFilenameDrive = args.modelFilenameDrive
-            myutils.saveOnDrive(epoch=epoch, model=modelFilenameDrive,
+            myutils.saveOnDrive(epoch=epoch, model=modelFilenameDrive, args=args,
                         pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/")
 
     return (model)  # return model (convenience for encoder-decoder training)
