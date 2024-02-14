@@ -758,12 +758,12 @@ def train(args, model, enc=False):
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
             torch.save(model.state_dict(), filenamebest)
-            if args.pruning > 0 :
-                print("Saving also the model without pruned layers ... ")
-                modelPrunned = copy.deepcopy(model)
-                modelPrunned = myutils.convert_model_from_dataparallel(modelPrunned)
-                myutils.remove_mask_from_model_with_pruning(modelPrunned,modelPrunned.state_dict())
-                myutils.save_model_mod_on_drive(model,args)
+            #if args.pruning > 0 :
+                #print("Saving also the model without pruned layers ... ")
+                #modelPrunned = copy.deepcopy(model)
+                #modelPrunned = myutils.convert_model_from_dataparallel(modelPrunned)
+                #myutils.remove_mask_from_model_with_pruning(modelPrunned,modelPrunned.state_dict())
+                #myutils.save_model_mod_on_drive(model,args)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
