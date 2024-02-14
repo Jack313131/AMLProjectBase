@@ -385,8 +385,6 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
 

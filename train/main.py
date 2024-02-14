@@ -17,6 +17,7 @@ from argparse import ArgumentParser
 import re
 from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
@@ -29,7 +30,7 @@ from erfnet import non_bottleneck_1d, DownsamplerBlock
 from torch.cuda.amp import GradScaler, autocast
 import importlib
 from iouEval import iouEval, getColorEntry
-
+import utils as myutils
 from shutil import copyfile
 
 NUM_CHANNELS = 3
@@ -227,7 +228,7 @@ def train(args, model, enc=False):
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
-    if args.cuda:
+    if args.cuda and torch.cuda.is_available():
         weight = weight.cuda()
     criterion = CrossEntropyLoss2d(weight)
     # print(type(criterion))
@@ -279,8 +280,7 @@ def train(args, model, enc=False):
     # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=1e-5, max_lr=0.01, step_size_up=20,
-                                                  mode='triangular', cycle_momentum=False)  # scheduler 3
+    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.00001) #scheduler 3
 
     start_epoch = 1
     if args.resume:
@@ -311,12 +311,12 @@ def train(args, model, enc=False):
                     zeros = torch.sum(module.weight == 0)
                     print(
                         f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
-                if args.typePruning == "structured" and hasattr(module, 'weight'):
-                    print(f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
-            # flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal, modelPruning=model)
-            # print("\n\n Flops & Params difference : \n")
-            # print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}\n")
-            # print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+                if args.typePruning == "structured" and hasattr(module, 'weight') and hasattr(module, 'weight_mask'):
+                    original_out_channels = module.weight.size()[0]
+                    non_zero_filters = module.weight_mask.data.sum(dim=(1, 2, 3)) != 0
+                    new_out_channels = non_zero_filters.long().sum().item()
+                    if new_out_channels != original_out_channels:
+                        print(f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning * 100} passing from {original_out_channels} to {new_out_channels} layers\n")
         del checkpoint
         gc.collect()
 
@@ -357,7 +357,6 @@ def train(args, model, enc=False):
         # Nel tuo esempio, map_location=lambda storage, loc: storage è una funzione lambda che ignora il loc (la localizzazione originale del tensore quando è stato salvato) e restituisce storage. Questo significa che i tensori saranno caricati sulla stessa tipologia di dispositivo da cui sono stati salvati (CPU o GPU).
         model = load_my_state_dict(model, torch.load(args.loadWeights, map_location=lambda storage, loc: storage))
         print("Model and weights LOADED successfully")
-        print(f"Model has the variable in the format : {args.typeQuantization}")
 
     # se sono stati impostati visualize a True ed è stato settato una cardinalità per mostrare la visualizzazione ogni tot step ( step rappresenta essenzialmente il numero del batch corrente durante l'iterazione del DataLoader)
     # In caso positivo viene creata un istanza di Dashboard che al suo interno ha metodi per visualizzare perdite e immagini.
@@ -378,14 +377,11 @@ def train(args, model, enc=False):
 
     pruning_setting_path = savedir + "/pruning_setting.txt"
     if args.pruning > 0 and not args.resume:
-        if args.typeQuantization != "float32":
-            print(f"Model set to {args.typeQuantization}")
         if "encoder" in args.moduleErfnetPruning:
             if args.typePruning.casefold().replace(" ", "") == "unstructured":
                 print(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... ")
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 with open(pruning_setting_path, 'w') as file:
-                    file.write(f"Model set to {args.typeQuantization} ... \n")
                     file.write(
                         f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
@@ -452,15 +448,13 @@ def train(args, model, enc=False):
                 print(f"Applying pruning encoder (type pruning : {args.typePruning})  with value : {args.pruning} ... ")
                 print(f"For more info of the prunning applied see the file : {pruning_setting_path}")
                 with open(pruning_setting_path, 'w') as file:
-                    file.write(f"Model set to {args.typeQuantization} ... \n")
-                    file.write(
-                        f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
+                    file.write(f"Applying pruning encoder (type pruning : {args.typePruning}) with value : {args.pruning} ... \n\n")
                 if isinstance(model, torch.nn.DataParallel):
-                    for name, module in model.module.named_modules():
+                    for name, module in model.module.encoder.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (
-                                    match and int(match.group()) in args.listNumLayerPruning):
+                                    match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
                                                          if any(
                                             substring in name2 for substring in args.listInnerLayerPruning)]:
@@ -472,7 +466,7 @@ def train(args, model, enc=False):
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (
-                                    match and int(match.group()) in args.listNumLayerPruning):
+                                    match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
                                                          if any(
                                             substring in name2 for substring in args.listInnerLayerPruning)]:
@@ -482,11 +476,11 @@ def train(args, model, enc=False):
                                     with open(pruning_setting_path, 'a') as file:
                                         file.write(textFile + "\n")
                 else:
-                    for name, module in model.named_modules():
+                    for name, module in model.encoder.named_modules():
                         if isinstance(module, non_bottleneck_1d) and "non_bottleneck_1d" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (
-                                    match and int(match.group()) in args.listNumLayerPruning):
+                                    match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
                                                          if any(
                                             substring in name2 for substring in args.listInnerLayerPruning)]:
@@ -498,7 +492,7 @@ def train(args, model, enc=False):
                         if isinstance(module, DownsamplerBlock) and "DownsamplerBlock" in args.listLayerPruning:
                             match = re.search(r'\d+', name)
                             if len(args.listNumLayerPruning) == 0 or (
-                                    match and int(match.group()) in args.listNumLayerPruning):
+                                    match and str(match.group()) in args.listNumLayerPruning):
                                 for nameLayer, layer in [(name2, module2) for name2, module2 in module.named_modules()
                                                          if any(
                                             substring in name2 for substring in args.listInnerLayerPruning)]:
@@ -507,12 +501,6 @@ def train(args, model, enc=False):
                                     textFile = f"Module : DownsamplerBlock , Num_Layer : {name} , innerModule : {nameLayer} applying pruning on weight"
                                     with open(pruning_setting_path, 'a') as file:
                                         file.write(textFile + "\n")
-
-                # flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning =  myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=model)
-                # with open(pruning_setting_path, 'a') as file:
-                # file.write("\n\n Flops & Params difference : \n")
-                # file.write(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}\n")
-                # file.write(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
             else:
                 raise ValueError("No type of pruning specified between {unstructured-structured}")
         elif "decoder" in args.moduleErfnetPruning:
@@ -531,15 +519,15 @@ def train(args, model, enc=False):
                     with open(pruning_setting_path, 'a') as file:
                         file.write(
                             f"Name {name} Applied Pruning Unstructured Weight: {hasattr(module, 'weight_mask')} with value : {(zeros.float() / total) * 100:.2f}% di zero weights\n")
-                if args.typePruning == "structured" and hasattr(module, 'weight'):
-                    with open(pruning_setting_path, 'a') as file:
-                        file.write(
-                            f"Name {name} Applied Pruning Structured current structured layer {module.weight.shape}\n")
+                if args.typePruning == "structured" and hasattr(module, 'weight') and hasattr(module,'weight_mask'):
+                    original_out_channels = module.weight.size()[0]
+                    non_zero_filters = module.weight_mask.data.sum(dim=(1, 2, 3)) != 0
+                    new_out_channels = non_zero_filters.long().sum().item()
+                    if new_out_channels != original_out_channels:
+                        with open(pruning_setting_path, 'a') as file:
+                            file.write(
+                                f"Name {name} Applied Pruning Structured with Norm {args.typeNorm} and pruning of {args.pruning*100} passing from {original_out_channels} to {new_out_channels} layers\n")
 
-    # modelTest = myutils.remove_mask_from_model_with_pruning(model,args)
-
-    # for key in model.state_dict():
-    #    print(f"{key}: {model.state_dict()[key].dtype}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -612,7 +600,6 @@ def train(args, model, enc=False):
             # Questo calcola i gradienti della perdita rispetto ai parametri del modello. È il passo in cui il modello "impara", aggiornando i gradienti in modo da minimizzare la perdita.
             loss.backward()
 
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             # Questo passaggio aggiorna i pesi del modello utilizzando i gradienti calcolati nel passaggio backward. L'ottimizzatore Adam (definito sopra) modifica i pesi per minimizzare la perdita.
             optimizer.step()
@@ -769,9 +756,11 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filename)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
-            # if args.pruning > 0 :
-            # model = myutils.remove_mask_from_model_with_pruning(model,args)
             torch.save(model.state_dict(), filenamebest)
+            if args.pruning > 0 :
+                print("Saving also the model without pruned layers ... ")
+                model = myutils.remove_mask_from_model_with_pruning(model,args)
+                myutils.save_model_mod_on_drive(model,args)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
@@ -786,33 +775,8 @@ def train(args, model, enc=False):
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (
                 epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr))
         if args.saveCheckpointDriveAfterNumEpoch > 0 and step > 0 and step % args.saveCheckpointDriveAfterNumEpoch == 0:
-            if args.pruning > 0:
-                quantized = f"_Quantized_{args.typeQuantization}"
-                typeNorm = f"_Norm_{args.typeNorm}" if args.typeNorm else ""
-                namePruning = f"PruningType_{args.typePruning}{typeNorm}_Value_{args.pruning}{quantized}"
-                if len(args.moduleErfnetPruning) > 0:
-                    namePruning = namePruning + "_Module"
-                    for module in args.moduleErfnetPruning:
-                        namePruning = namePruning + f"_{module}"
-                if len(args.listLayerPruning) > 0:
-                    namePruning = namePruning + "_Layer"
-                    nameInnerStateMod = "("
-                    for value in args.listInnerLayerPruning:
-                        nameInnerStateMod = nameInnerStateMod + f"_{value}"
-                    nameInnerStateMod += ")"
-                    for layer in args.listLayerPruning:
-                        namePruning = namePruning + f"_{layer}{nameInnerStateMod}"
-                    numberLayer = "_AllLayer"
-                    if len(args.listNumLayerPruning) > 0:
-                        numberLayer = "_NumLayerPruning"
-                        for number in args.listNumLayerPruning:
-                            numberLayer = numberLayer + f"_{number}"
-
-                    namePruning = namePruning + numberLayer
-
-            modelFilenameDrive = args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (
-                namePruning if args.pruning else "")
-            saveOnDrive(epoch=epoch, model=modelFilenameDrive,
+            modelFilenameDrive = args.modelFilenameDrive
+            myutils.saveOnDrive(epoch=epoch, model=modelFilenameDrive,
                         pathOriginal=f"/content/AMLProjectBase/save/{args.savedir}/")
 
     return (model)  # return model (convenience for encoder-decoder training)
@@ -823,28 +787,6 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
     if is_best:
         print("Saving model as best")
         torch.save(state, filenameBest)
-
-
-def saveOnDrive(epoch, model, pathOriginal):
-    if not os.path.isdir(pathOriginal):
-        print(f"Path Original is wrong : {pathOriginal}")
-    drive = "/content/drive/MyDrive/"
-    if os.path.isdir(drive):
-        if not os.path.isdir(drive + f"AML/"):
-            os.mkdir(drive + f"AML/")
-        if not os.path.exists(drive + f"AML/{model}/"):
-            os.mkdir(drive + f"AML/{model}/")
-        shutil.copy2(pathOriginal + "/checkpoint.pth.tar", drive + f"AML/{model}/checkpoint.pth.tar")
-        shutil.copy2(pathOriginal + "/automated_log.txt", drive + f"AML/{model}/automated_log.txt")
-        shutil.copy2(pathOriginal + "/opts.txt", drive + f"AML/{model}/opts.txt")
-        shutil.copy2(pathOriginal + "/model.txt", drive + f"AML/{model}/model.txt")
-        shutil.copy2(pathOriginal + "/pruning_setting.txt", drive + f"AML/{model}/pruning_setting.txt")
-        if os.path.isfile(pathOriginal + "/model_best.pth"):
-            shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
-        print(f"Checkpoint of epoch {epoch} saved on Drive path : {drive}AML/{model}/")
-    else:
-        print("Drive is not linked ...")
-
 
 def main(args):
     savedir = f'../save/{args.savedir}'
@@ -866,7 +808,7 @@ def main(args):
         model = model_file.Net(NUM_CLASSES)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
 
-    if args.cuda:
+    if args.cuda and torch.cuda.is_available():
         model = torch.nn.DataParallel(model).cuda()
 
     if args.state:
@@ -936,14 +878,14 @@ def main(args):
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
         if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
-            pretrainedEnc = next(model.children()).encoder
+            pretrainedEnc = next(model.children()).encoder if isinstance(model,torch.nn.DataParallel) else next(model.children())
         if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
             model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size, backbone=args.backbone)
         if args.model.casefold().replace(" ", "") == "BiSeNet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if args.model.casefold().replace(" ", "") == "erfnet":
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
-        if args.cuda:
+        if args.cuda and torch.cuda.is_available():
             model = torch.nn.DataParallel(model).cuda()
         # When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
     model = train(args, model, False)  # Train decoder
@@ -967,7 +909,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
     parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
-    parser.add_argument('--savedir', required=True)
+    parser.add_argument('--savedir', required=False)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize',
@@ -989,9 +931,11 @@ if __name__ == '__main__':
     parser.add_argument("--listNumLayerPruning", nargs='+', help='', default=[])
     parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
     parser.add_argument('--loadWeights', default="../trained_models/erfnet_pretrained.pth")
-    parser.add_argument("--typeQuantization", type=str, default="float32")
 
     if os.path.basename(os.getcwd()) != "train":
         os.chdir("./train")
 
-    main(parser.parse_args())
+    args = myutils.set_args(parser.parse_args())
+    myutils.connect_to_drive()
+
+    main(args)
