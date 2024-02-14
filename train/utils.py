@@ -105,7 +105,7 @@ def remove_mask_from_model_with_pruning(model,state_dict):
                     own_state[name.split("module.")[-1]].copy_(
                         param)  # name.split("module.")[-1] --> toglie la parte module. dal nome e si tiene il resto
                 else:
-                    print(name, " not loaded")
+                    own_state[name].copy_(param)
                     continue
             else:
                 # se il modello partenza ha già un parametro con quel nome lo aggiorna direttamente
@@ -125,9 +125,9 @@ def save_model_mod_on_drive(model,args):
         filename = args.modelFilenameDrive+".pth"
     path_drive = args.path_drive+"/Models/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
-    dir_name = path_drive+filename.replace(".pth","")
+    dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
-    torch.save(model, path_drive+filename)
+    torch.save(model, path_drive+dir_name+filename)
     print(f"The model {filename} has been saved on the path : {dir_name}")
 
 def set_args(__args):
@@ -381,6 +381,8 @@ def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
             shutil.copy2(pathOriginal + "/pruning_setting.txt", drive + f"AML/{model}/pruning_setting.txt")
         if os.path.isfile(pathOriginal + "/model_best.pth"):
             shutil.copy2(pathOriginal + "/model_best.pth", drive + f"AML/{model}/model_best.pth")
+        if os.path.isfile(pathOriginal+ f"/model_best_{args.modelFilenameDrive}.pth"):
+            shutil.copy2(pathOriginal+ f"/model_best_{args.modelFilenameDrive}.pth", drive + f"AML/{model}/model_best_{args.modelFilenameDrive}.pth")
         if os.path.isfile(pathOriginal + "/result.txt"):
             shutil.copy2(pathOriginal + "/result.txt", drive + f"AML/{model}/result.txt")
         if epoch is not None:
