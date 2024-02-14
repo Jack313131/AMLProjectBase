@@ -10,6 +10,7 @@ import time
 import numpy as np
 import torch
 import math
+import copy
 import gc
 import torch.nn.utils.prune as prune
 from PIL import Image, ImageOps
@@ -751,7 +752,7 @@ def train(args, model, enc=False):
             filenamebest = f'{savedir}/model_encoder_best.pth'
         else:
             filename = f'{savedir}/model-{epoch:03}.pth'
-            filenamebest = f'{savedir}/model_best.pth'
+            filenamebest = f'{savedir}/model_best_{args.modelFilenameDrive}.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
             torch.save(model.state_dict(), filename)
             print(f'save: {filename} (epoch: {epoch})')
@@ -759,7 +760,7 @@ def train(args, model, enc=False):
             torch.save(model.state_dict(), filenamebest)
             if args.pruning > 0 :
                 print("Saving also the model without pruned layers ... ")
-                modelPrunned = shutil.copy.deepcopy(model)
+                modelPrunned = copy.deepcopy(model)
                 modelPrunned = myutils.convert_model_from_dataparallel(modelPrunned)
                 myutils.remove_mask_from_model_with_pruning(modelPrunned,modelPrunned.state_dict())
                 myutils.save_model_mod_on_drive(model,args)
