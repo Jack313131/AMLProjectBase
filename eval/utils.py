@@ -409,3 +409,15 @@ def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
             print(f"Saved on drive on the path {path_drive}")
     else:
         print("Drive is not linked ...")
+
+def direct_quantize(args, model, test_loader):
+    for i, (data, target, filename, filenameGt) in enumerate(test_loader, 1):
+        if not args.cpu:
+            data = data.cuda()
+            target = target.cuda()
+        model.quantize_forward(data)
+        if args.cpu and i % 10 == 0:
+            break
+        if i % 500 == 0:
+            break
+    print('direct quantization finished')

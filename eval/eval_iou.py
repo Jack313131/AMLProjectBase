@@ -180,6 +180,7 @@ def main(args):
     print("Loading model and weights Mod: " + path_model_mod)
 
     modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
+    #myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
     if args.loadWeightsPruned:
         myutils.save_model_mod_on_drive(model=modelMod,args=args)
     print("Model and weights Mod LOADED successfully")
@@ -190,8 +191,18 @@ def main(args):
 
     if args.typeQuantization == "int8":
         print("Applying quantization to int8 ... ")
-        modelMod = myutils.quantize_model_to_int8(modelMod,input_transform_cityscapes=input_transform_cityscapes,
-                                            target_transform_cityscapes = target_transform_cityscapes,args=args)
+        modelMod.eval()
+        modelMod.set_config('x86')
+        modelMod.quantize()
+        print("Model Mod Quantized ...")
+        calibration_dataloader = DataLoader(
+            cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset='val'),
+            num_workers=torch.cuda.device_count(), batch_size=6, shuffle=False)
+
+        myutils.direct_quantize(args, modelMod, calibration_dataloader)
+        modelMod.freeze()
+        print("Model Mod calibrated ...")
+
     if args.typeQuantization == "float16":
         print("Applying model to float16 ... ")
         modelMod = modelMod.half()
@@ -216,7 +227,10 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputsOriginal = modelOriginal(inputs)
-            outputsMod = modelMod(inputs)
+            if args.typeQuantization != "int8":
+                outputsMod = modelMod(inputs)
+            elif args.typeQuantization == "int8":
+                outputsMod = modelMod.quantize_inference(inputs)
 
         finalOutput = outputsOriginal.max(1)[1].unsqueeze(1)
 
