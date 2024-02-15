@@ -69,8 +69,8 @@ def compute_difference_flop(modelOriginal,modelPruning):
     with suppress_stdout():
         flopsOriginal, paramsOriginal = thop.profile(modelOriginal, inputs=(input,))
         flopsPruning, paramsPrunning = thop.profile(modelPruning, inputs=(input,))
-    print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}")
-    print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+    #print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}")
+    #print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
 
     return flopsOriginal,flopsPruning,paramsOriginal,paramsPrunning
 
@@ -123,11 +123,11 @@ def save_model_mod_on_drive(model,args):
     filename = args.modelFilenameDrive
     if not ".pth" in filename:
         filename = args.modelFilenameDrive+".pth"
-    path_drive = args.path_drive+"/Models/"
+    path_drive = args.path_drive+"Models/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
-    torch.save(model, path_drive+dir_name+filename)
+    torch.save(model, dir_name+filename)
     print(f"The model {filename} has been saved on the path : {dir_name}")
 
 def set_args(__args):
@@ -324,7 +324,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
             param.requires_grad = True
 
-    for epoch in range(1, 15):
+    for epoch in range(1, 5):
         print("----- TRAINING - EPOCH", epoch, "-----")
         epoch_loss = []
         time_train = []
@@ -374,7 +374,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
-    print(f"Model Pruned Completely has been saved on the path {args.path_drive}/Models/{args.modelFilenameDrive}/")
+    print(f"Model Pruned Completely has been saved on the path {args.path_drive}Models/{args.modelFilenameDrive}/")
 def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
     pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/"
     model = args.modelFilenameDrive

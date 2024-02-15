@@ -408,7 +408,7 @@ class Net(nn.Module):
         # self.register_parameter('qencoder', nn.Parameter(qencoder_params))
         # self.register_parameter('qdecoder', nn.Parameter(self.encoder.parameters()))
 
-    def forward(self, input, file, only_encode=False):
+    def forward(self, input, file=None, only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:

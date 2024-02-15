@@ -23,7 +23,7 @@ from torchvision.transforms import ToTensor, ToPILImage
 import utils as myutils
 from dataset import cityscapes
 # from erfnet import ERFNet
-from erfnet import ERFNet
+from erfnet import Net
 from transform import Relabel, ToLabel, Colorize
 from iouEval import iouEval, getColorEntry
 
@@ -142,8 +142,8 @@ def main(args):
     print("Loading weights Original: " + weightspath)
 
 
-    modelOriginal = ERFNet(NUM_CLASSES)
-    modelMod = ERFNet(NUM_CLASSES)
+    modelOriginal = Net(NUM_CLASSES)
+    modelMod = Net(NUM_CLASSES)
 
     # modelOriginal = torch.nn.DataParallel(modelOriginal)
     if (not args.cpu):
@@ -181,12 +181,13 @@ def main(args):
 
     modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
     #myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
-    if args.loadWeightsPruned:
-        myutils.save_model_mod_on_drive(model=modelMod,args=args)
+    #if args.loadWeightsPruned:
+        #myutils.save_model_mod_on_drive(model=modelMod,args=args)
     print("Model and weights Mod LOADED successfully")
-
-    if "adaptLayer" in modelMod.state_dict():
-        myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
+    if args.loadModelPruned:
+        layer_names = list(modelMod.state_dict().keys())
+        if any('adaptingInput' in name for name in layer_names):
+            myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
                                             target_transform_cityscapes = target_transform_cityscapes, weight=weight,args=args)
 
     if args.typeQuantization == "int8":
@@ -218,7 +219,7 @@ def main(args):
     iouEvalValMod = iouEval(NUM_CLASSES)
 
     start = time.time()
-
+    print("\n\nStarting evaluation ....")
     for step, (images, labels, filename, filenameGt) in enumerate(loader):
         if (not args.cpu):
             images = images.cuda()
@@ -300,6 +301,10 @@ def main(args):
         iouStr = getColorEntry(iouValOriginal) + '{:0.2f}'.format(iouValOriginal * 100) + '\033[0m'
         iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
         myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
+        flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
+        myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}")
+        myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -330,7 +335,7 @@ if __name__ == '__main__':
     parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
     parser.add_argument("--typeQuantization", type=str, default="float32")
 
-    myutils.set_args(parser.parse_args())
+    args = myutils.set_args(parser.parse_args())
     #myutils.connect_to_drive()
 
     path_project = "./"
@@ -339,4 +344,4 @@ if __name__ == '__main__':
     if os.path.basename(os.getcwd()) != "eval":
         os.chdir(f"{path_project}eval")
 
-    main(parser.parse_args())
+    main(args)
