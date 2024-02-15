@@ -77,6 +77,7 @@ def compute_difference_flop(modelOriginal,modelPruning):
 def remove_mask_from_model_with_pruning(model,state_dict):
 
     if isinstance(state_dict,nn.Module):
+        print("Model passed is already a completed model ....")
         return state_dict
     # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
     own_state = model.state_dict()
@@ -149,8 +150,18 @@ def set_args(__args):
         if features_model_input is not None and args.listNumLayerPruning is None and features_model_input[features_model_input.index('Layer')+1] !="All":
             args.listNumLayerPruning = [int(numLayer) for numLayer in [features_model_input[features_model_input.index('Layer')+1:]]]
 
-    if hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned:
-        features_model_input = args.loadWeightsPruned.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
+    condition1 = hasattr(args,
+                         'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned
+    condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
+    if condition1 or condition2:
+
+        if condition1:
+            features_model_input = args.loadWeightsPruned
+        elif condition2:
+          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"")
+
+
+        features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
 
         if features_model_input is not None and not hasattr(args,'model'):
             args.model = features_model_input[0]

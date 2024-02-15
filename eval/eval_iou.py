@@ -184,7 +184,7 @@ def main(args):
     #if args.loadWeightsPruned:
         #myutils.save_model_mod_on_drive(model=modelMod,args=args)
     print("Model and weights Mod LOADED successfully")
-    if args.loadModelPruned:
+    if not args.loadModelPruned and args.loadWeightsPruned:
         layer_names = list(modelMod.state_dict().keys())
         if any('adaptingInput' in name for name in layer_names):
             myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
@@ -217,6 +217,13 @@ def main(args):
 
     iouEvalValOriginal = iouEval(NUM_CLASSES)
     iouEvalValMod = iouEval(NUM_CLASSES)
+
+    if torch.cuda.is_available():
+        modelMod = modelMod.to('cuda')
+        modelOriginal = modelOriginal.to('cuda')
+
+    modelOriginal.eval()
+    modelMod.eval()
 
     start = time.time()
     print("\n\nStarting evaluation ....")
@@ -271,9 +278,10 @@ def main(args):
         iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
         iou_classes_str_mod.append(iouStr)
 
-    # Assicurati che le variabili iou_classes_str_original e iou_classes_str_mod siano definite
-    features_model_changed = path_model_mod.split("-")[2:]
-    num_layers = str(features_model_changed[features_model_changed.index('Layer'):])
+
+
+    name_modules = " ".join(str(name_module) for name_module in args.listNumLayerPruning)
+    num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
     text_model = (f"The model is with pruning {features_model_changed[0]} (amount : {features_model_changed[1]} & norm = {features_model_changed[4]}) "
                   f"for the modules {features_model_changed[5]} applied on layers {num_layers}")
 
