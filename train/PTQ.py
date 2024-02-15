@@ -24,13 +24,13 @@ from iouEval import iouEval, getColorEntry
 NUM_CHANNELS = 3
 NUM_CLASSES = 20  # pascal=22, cityscapes=20
 
-def direct_quantize(args, model, test_loader):
+def direct_quantize(args, model, model_full, test_loader):
     for i, (data, target) in enumerate(test_loader, 1):
-        if args.cuda:
+        if not args.cpu:
             data = data.cuda()
             target = target.cuda()
         output = model.quantize_forward(data)
-        if i % 500 == 0:
+        if i % 2 == 0:
             break
     print('direct quantization finished')
 
@@ -80,7 +80,7 @@ def full_inference(args, model, test_loader):
     # flops = FlopCountAnalysis(model, data)
     # flops.total()
     for i, (data, target) in enumerate(test_loader, 1):
-        if args.cuda:
+        if not args.cpu:
             data = data.cuda()
             target = target.cuda()
         data = Variable(data)
@@ -97,18 +97,18 @@ def full_inference(args, model, test_loader):
     print('\nTest set: mIoU: {:.2f}%, FLOPS: {}, #params: {}\n'.format(miou * 100, total_flops, num_params))
     return miou
 
-def quantize_inference(args, model, test_loader):
+def quantize_inference(args, model, model_full, test_loader):
     correct = 0
     intersection = 0
     union = 0
     # for name, param in model.named_parameters():
     #   if param.requires_grad and ("qencoder" in name or "qdecoder" in name):
     #       print(name)
-    total_flops, num_params = model.get_flops_and_params()
+    total_flops, num_params = 0, 0 # model.get_flops_and_params()
     # total_flops = 0
     # flops = torch.profiler.profile(model, inputs=(test_loader), use_cuda=torch.cuda.is_available()).total_float_ops
     for i, (data, target) in enumerate(test_loader, 1):
-        if args.cuda:
+        if not args.cpu:
             data = data.cuda()
             target = target.cuda()
         data = Variable(data)
@@ -165,10 +165,12 @@ class MyCoTransform(object):
 def main(args):
     enc = False
     num_bits = 8
-    drivedir = f'/content/drive/MyDrive/'
-    save_file = drivedir + '[PTQ]/' + f'quantized_wights{num_bits}.pth'
-    if not os.path.exists(drivedir):
-        assert("Drivedir does not exist")
+    if os.path.basename(os.getcwd()) != "train":
+        os.chdir("./train")
+    # drivedir = f'/content/drive/MyDrive/'
+    # save_file = drivedir + '[PTQ]/' + f'quantized_wights{num_bits}.pth'
+    # if not os.path.exists(drivedir):
+    #     assert("Drivedir does not exist")
 
     modelpath = args.loadDir + args.loadModel
     weightspath = args.loadDir + args.loadWeights
@@ -181,18 +183,19 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     model = model_file.Net(NUM_CLASSES)
+    model_full = model_file.Net(NUM_CLASSES)
 
     if (not args.cpu):
         model = torch.nn.DataParallel(model).cuda()
 
-    copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
+    # copyfile(args.model + ".py", drivedir + '/' + args.model + ".py")
 
     # train_loader = torch.utils.data.DataLoader(
     #     dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True
     # )
 
     test_loader = torch.utils.data.DataLoader(
-        dataset_val, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True
+        dataset_val, batch_size=args.batch_size, shuffle=True, num_workers=1
     )
 
     def load_my_state_dict(model, state_dict):  # custom function to load model when not all dict elements
@@ -216,17 +219,19 @@ def main(args):
                 own_state[name].copy_(param)
         return model
     model = load_my_state_dict(model, torch.load(weightspath, map_location=lambda storage, loc: storage))
+    model_full = load_my_state_dict(model_full, torch.load(weightspath, map_location=lambda storage, loc: storage))
     print("Model and weights LOADED successfully")
 
 
     model.eval()
     print("### Full inference ###")
-    full_inference(args, model, test_loader)
+    # full_inference(args, model, test_loader)
 
     num_bits = 8
     print("### Model quantize ###")
-    model.module.quantize(num_bits=num_bits)
     model.eval()
+    model.set_config('x86')
+    model.quantize(num_bits=num_bits)
     print('Quantization bit: %d' % num_bits)
 
 
@@ -235,11 +240,11 @@ def main(args):
     #     print("Successfully load quantized model %s" % load_quant_model_file)
     
     print("### Direct quantize ###")
-    direct_quantize(args, model.module, test_loader)
+    direct_quantize(args, model, model_full, test_loader)
 
-    torch.save(model.state_dict(), save_file)
+    # torch.save(model.state_dict(), save_file)
     print("### Model Saved ###")
-    model.module.freeze()
+    model.freeze()
 
     # 测试是否设备转移是否正确
     # model.cuda()
@@ -247,7 +252,7 @@ def main(args):
     # model.cpu()
     # print(model.qconv1.M.device)
 
-    quantize_inference(args, model.module, test_loader)
+    quantize_inference(args, model, model_full, test_loader)
 
     ################# Provato ad utilizzare il metodo quantize_fx => da problemi nella funzione fx.symbolic_trace
     # m = copy.deepcopy(model)
@@ -276,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument('--cuda', action='store_true',
                         default=True) 
     parser.add_argument('--model', default="erfnet")
-    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
+    parser.add_argument('--datadir', default= "C:\\Users\\grube\\Documents\\AAUNI\\Magistrale\\ANNO_I\\Parte_II\\VSCODE\\AML\\AMLProjectBase\\dataset2")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
