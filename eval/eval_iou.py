@@ -282,12 +282,12 @@ def main(args):
 
     name_modules = " ".join(str(name_module) for name_module in args.listNumLayerPruning)
     num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
-    text_model = (f"The model is with pruning {features_model_changed[0]} (amount : {features_model_changed[1]} & norm = {features_model_changed[4]}) "
-                  f"for the modules {features_model_changed[5]} applied on layers {num_layers}")
+    text_model = (f"The model is with pruning {args.typePruning} (amount : {args.pruning} & norm = {args.typeNorm}) "
+                  f"for the modules {name_modules} applied on layers {num_layers}")
 
 
-    dir_model = path_model_mod.replace(".pth","")
-    dir_save_result = f"{myutils.args.path_drive}Models/{dir_model}/results.txt"
+    dir_model = args.modelFilenameDrive.replace(".pth","")
+    dir_save_result = f"{args.path_drive}Models/{dir_model}/results.txt"
     print(f"Saving result on path : {dir_save_result}")
     # Apertura (o creazione se non esiste) del file in modalità di scrittura
     with open(dir_save_result, 'w') as file:
@@ -299,7 +299,7 @@ def main(args):
         # Il tuo codice commentato
         # myutils.models(f"TOTAL IOU: {iou * 100}%", file)
 
-        myutils.models("Per-Class IoU:", file)
+        myutils.print_and_save("Per-Class IoU:", file)
         for i in range(len(iou_classes_str_original)):
             myutils.print_and_save(
                 f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- [Category Name]",
