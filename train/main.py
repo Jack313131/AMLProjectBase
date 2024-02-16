@@ -281,12 +281,7 @@ def train(args, model, enc=False):
     # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    max_lr = 0.01  # Il massimo learning rate
-    steps_per_epoch = len(loader)  # Numero di batch (iterazioni) per epoca
-    total_steps = args.num_epochs * steps_per_epoch  # Numero totale di iterazioni
-
-    # Inizializzazione dello scheduler
-    scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
+    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.001)
 
     start_epoch = 1
     if args.resume:
@@ -306,8 +301,8 @@ def train(args, model, enc=False):
             model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
-        if 'scheduler' in checkpoint:
-            scheduler.load_state_dict(checkpoint['scheduler'])
+        #if 'scheduler' in checkpoint:
+          #  scheduler.load_state_dict(checkpoint['scheduler'])
         print("=> Loaded checkpoint at epoch {}".format(checkpoint['epoch']))
         if args.pruning > 0:
             print(f"Pruning Applied :")
