@@ -28,7 +28,8 @@ class DownsamplerBlock(nn.Module):
         if hasattr(self, "adaptingInput") and self.conv.in_channels + self.conv.out_channels != self.bn.num_features:
             inputMaxPool = self.adaptingInput(input)
         if hasattr(self, "maskInput") and self.conv.in_channels + self.conv.out_channels != self.bn.num_features:
-            new_tensor = torch.zeros(1, 64, 128, 256)
+            output_size_channels = self.conv(input).size(1)
+            new_tensor = torch.zeros(input.size(0), output_size_channels, input.size(2), input.size(3))
             selected_indices = torch.where(self.maskInput)[0]
             if len(selected_indices) > input.size(1):
                 raise ValueError("La maschera seleziona più canali di quanti ce ne siano nell'input")
@@ -109,7 +110,15 @@ class non_bottleneck_1d(nn.Module):
             input = self.adaptingInput(input)
 
         if hasattr(self, 'maskInput') and input.size()[1] != output.size()[1]:
-            input = input[:,self.maskInput,:,:]
+            if input.size()[1] > output.size()[1]:
+                input = input[:,self.maskInput,:,:]
+            elif input.size()[1] < output.size()[1]:
+                new_tensor = torch.zeros(input.size()[0], output.size()[1], input.size()[2], input.size()[3])
+                selected_indices = torch.where(self.maskInput)[0]
+                if len(selected_indices) > input.size(1):
+                    raise ValueError("La maschera seleziona più canali di quanti ce ne siano nell'input")
+                new_tensor[:, selected_indices, :, :] = input
+                input = new_tensor
 
         if (self.dropout.p != 0):
             output = self.dropout(output)

@@ -240,7 +240,7 @@ def remove_prunned_channels_from_model(modelOriginal):
 
                 setattr(parent_module,path_keys[-1],new_layer)
 
-        if parent_module is not None and  isinstance(parent_module,DownsamplerBlock) and isinstance(layer, nn.Conv2d) and new_input_channel_next_layer == 0 :
+        if parent_module is not None and isinstance(layer, nn.Conv2d) and in_channels!=new_out_channels and in_channels<new_out_channels:
             setattr(parent_module, "maskInput", non_zero_filters_prev_layer)
 
         if isinstance(layer, nn.BatchNorm2d) and  new_input_channel_next_layer > 0:
