@@ -278,15 +278,12 @@ def main(args):
         iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
         iou_classes_str_mod.append(iouStr)
 
-
-
-    name_modules = " ".join(str(name_module) for name_module in args.listNumLayerPruning)
+    name_modules = " ".join(str(name_module) for name_module in args.listLayerPruning)
     num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
     text_model = (f"The model is with pruning {args.typePruning} (amount : {args.pruning} & norm = {args.typeNorm}) "
-                  f"for the modules {name_modules} applied on layers {num_layers}")
+                  f"for the modules :  {name_modules} applied on layers :  {num_layers}")
 
-
-    dir_model = args.modelFilenameDrive.replace(".pth","")
+    dir_model = args.modelFilenameDrive.replace(".pth", "")
     dir_save_result = f"{args.path_drive}Models/{dir_model}/results.txt"
     print(f"Saving result on path : {dir_save_result}")
     # Apertura (o creazione se non esiste) del file in modalità di scrittura

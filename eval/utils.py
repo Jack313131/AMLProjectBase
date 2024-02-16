@@ -158,7 +158,7 @@ def set_args(__args):
         if condition1:
             features_model_input = args.loadWeightsPruned
         elif condition2:
-          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"")
+          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","")
 
 
         features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
