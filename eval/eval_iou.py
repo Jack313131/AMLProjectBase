@@ -139,7 +139,7 @@ def main(args):
     if args.loadModelPruned:
         path_model_mod = args.loadDir + args.loadModelPruned
 
-    path_model_mod = args.loadDir+"model_best_erfnetPruningType_structured_Norm_1_Value_0.1_Module_encoder_Layer_non_bottleneck_1d(_conv)_NumLayerPruning_1_2_3_4_5.pth"
+    #path_model_mod = args.loadDir+"model_best_erfnetPruningType_structured_Norm_1_Value_0.1_Module_encoder_Layer_non_bottleneck_1d(_conv)_NumLayerPruning_1_2_3_4_5.pth"
 
     print("Loading model Original: " + modelpath)
     print("Loading weights Original: " + weightspath)
