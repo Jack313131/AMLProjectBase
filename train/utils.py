@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, OneCycleL
 from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
 
-from Loss import CrossEntropyLoss2d
+from main import CrossEntropyLoss2d
 from transform import ToLabel, Relabel
 from dataset import cityscapes
 from erfnet import non_bottleneck_1d,DownsamplerBlock

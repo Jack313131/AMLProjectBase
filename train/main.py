@@ -283,7 +283,7 @@ def train(args, model, enc=False):
     # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
     max_lr = 0.01  # Il massimo learning rate
     steps_per_epoch = len(loader)  # Numero di batch (iterazioni) per epoca
-    total_steps = args.args.num_epochs * steps_per_epoch  # Numero totale di iterazioni
+    total_steps = args.num_epochs * steps_per_epoch  # Numero totale di iterazioni
 
     # Inizializzazione dello scheduler
     scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
