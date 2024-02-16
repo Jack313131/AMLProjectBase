@@ -238,19 +238,21 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputsOriginal = modelOriginal(inputs)
+            outputsMod = modelMod(inputs)
             if args.typeQuantization != "int8":
                 outputsMod = modelMod(inputs)
             elif args.typeQuantization == "int8":
                 outputsMod = modelMod.quantize_inference(inputs)
 
-        finalOutput = outputsOriginal.max(1)[1].unsqueeze(1)
+        finalOutputOriginal = outputsOriginal.max(1)[1].unsqueeze(1)
+        finalOutputMod = outputsMod.max(1)[1].unsqueeze(1)
 
         if args.typeConfidence.casefold().replace(" ", "") == "msp":
             temperature = args.temperature
             scaledresult = outputsOriginal / temperature
             probs = torch.nn.functional.softmax(scaledresult, 1)  # result = modelOriginal(images), F = torch.nn.functional
             _, predicted_classes = torch.max(probs, dim=1)
-            finalOutput = predicted_classes.unsqueeze(1)
+            finalOutputOriginal = predicted_classes.unsqueeze(1)
         if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
             eps = 1e-10
             probs = torch.nn.functional.softmax(outputsOriginal, dim=1)
@@ -259,10 +261,10 @@ def main(args):
             confidence = 1 - entropy
             weighted_output = probs * confidence.unsqueeze(1)
             _, predicted_classes = torch.max(weighted_output, dim=1)
-            finalOutput = predicted_classes.unsqueeze(1)
+            finalOutputOriginal = predicted_classes.unsqueeze(1)
 
-        iouEvalValOriginal.addBatch(finalOutput.data, labels)
-        iouEvalValMod.addBatch(outputsMod.max(1)[1].unsqueeze(1).data, labels)
+        iouEvalValOriginal.addBatch(finalOutputOriginal.data, labels)
+        iouEvalValMod.addBatch(finalOutputMod.data, labels)
 
         filenameSave = filename[0].split("leftImg8bit/")[1]
 
