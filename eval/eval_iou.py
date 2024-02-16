@@ -2,6 +2,7 @@
 # Nov 2017
 # Eduardo Romera
 #######################
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -137,6 +138,8 @@ def main(args):
         path_model_mod = args.loadDir + args.loadWeightsPruned
     if args.loadModelPruned:
         path_model_mod = args.loadDir + args.loadModelPruned
+
+    path_model_mod = args.loadDir+"model_best_erfnetPruningType_structured_Norm_1_Value_0.1_Module_encoder_Layer_non_bottleneck_1d(_conv)_NumLayerPruning_1_2_3_4_5.pth"
 
     print("Loading model Original: " + modelpath)
     print("Loading weights Original: " + weightspath)
@@ -278,12 +281,15 @@ def main(args):
         iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
         iou_classes_str_mod.append(iouStr)
 
+    class_name = ["Road", "sidewalk","building", "wall", "fence", "pole", "traffic light", "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
     name_modules = " ".join(str(name_module) for name_module in args.listLayerPruning)
     num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
     text_model = (f"The model is with pruning {args.typePruning} (amount : {args.pruning} & norm = {args.typeNorm}) "
                   f"for the modules :  {name_modules} applied on layers :  {num_layers}")
 
     dir_model = args.modelFilenameDrive.replace(".pth", "")
+    if not os.path.exists(f"{args.path_drive}Models/{dir_model}/"):
+        os.makedirs(f"{args.path_drive}Models/{dir_model}/")
     dir_save_result = f"{args.path_drive}Models/{dir_model}/results.txt"
     print(f"Saving result on path : {dir_save_result}")
     # Apertura (o creazione se non esiste) del file in modalità di scrittura
@@ -299,7 +305,7 @@ def main(args):
         myutils.print_and_save("Per-Class IoU:", file)
         for i in range(len(iou_classes_str_original)):
             myutils.print_and_save(
-                f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- [Category Name]",
+                f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- {class_name[i]}",
                 file)
 
         myutils.print_and_save("=======================================", file)
@@ -307,8 +313,8 @@ def main(args):
         iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
         myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
         flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
-        myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}")
-        myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+        myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}",file)
+        myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n",file)
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@ import logging
 import os
 from PIL import Image
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, OneCycleLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
 from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
 
@@ -215,7 +215,7 @@ def remove_prunned_channels_from_model(modelOriginal):
                     for key in path_keys[0:-1]:  # Vai fino al genitore del layer
                         parent_module = getattr(parent_module, key)
 
-                    setattr(parent_module, "adaptingInput", new_layer_adapt_input)
+                    setattr(parent_module, "maskInput", new_layer_adapt_input)
 
                 new_layer =  nn.Conv2d(in_channels=in_channels, out_channels=new_out_channels,
                       kernel_size=layer.kernel_size, stride=layer.stride, padding=layer.padding,
@@ -328,13 +328,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     criterion = CrossEntropyLoss2d(weight)
     optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
-    max_lr = 0.01  # Il massimo learning rate
-    num_epochs = 20
-    steps_per_epoch = len(loader_finetuning_adapting_layers)  # Numero di batch (iterazioni) per epoca
-    total_steps = num_epochs * steps_per_epoch  # Numero totale di iterazioni
-
-    # Inizializzazione dello scheduler
-    scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
+    scheduler = ExponentialLR(optimizer, gamma=0.9)
 
     print("Start fine tuning pruning for adding layers ... ")
     print("Freezing layer not named : adaptingInput")
@@ -346,7 +340,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
             param.requires_grad = True
 
-    for epoch in range(1, num_epochs):
+    for epoch in range(1, 10):
         print("----- TRAINING - EPOCH", epoch, "-----")
         epoch_loss = []
         time_train = []
