@@ -129,7 +129,7 @@ def save_model_mod_on_drive(model,args):
     filename = args.modelFilenameDrive
     if not ".pth" in filename:
         filename = args.modelFilenameDrive+".pth"
-    path_drive = args.path_drive+"Models/"
+    path_drive = args.path_drive+"ModelsMask/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
@@ -193,6 +193,7 @@ def remove_prunned_channels_from_model(modelOriginal):
     new_input_channel_next_layer = 0
     parent_module = None
     for nameLayer, layer in  modelOriginal.named_modules():
+
         if isinstance(layer, nn.Conv2d) and not 'output_conv' in nameLayer:
             if new_input_channel_next_layer > 0:
                 in_channels = new_input_channel_next_layer
@@ -200,7 +201,6 @@ def remove_prunned_channels_from_model(modelOriginal):
             else:
                 in_channels = layer.in_channels
                 input_changed = False
-                non_zero_filters_prev_layer = None
 
             # Trova i filtri non azzerati (esempio ipotetico, la logica esatta può variare)
             non_zero_filters = layer.weight.data.sum(dim=(1, 2, 3)) != 0
@@ -208,14 +208,14 @@ def remove_prunned_channels_from_model(modelOriginal):
             new_input_channel_next_layer = new_out_channels if new_out_channels != layer.out_channels else 0
             if new_out_channels != layer.out_channels or in_channels != layer.in_channels:
 
-                if input_changed == False and layer.in_channels != new_out_channels:
-                    new_layer_adapt_input = nn.Conv2d(layer.in_channels, new_out_channels, kernel_size=1, stride=1)
+                if new_out_channels != in_channels and in_channels>new_out_channels:
                     path_keys = str(nameLayer).split(".")
                     parent_module = modelFinal
                     for key in path_keys[0:-1]:  # Vai fino al genitore del layer
                         parent_module = getattr(parent_module, key)
 
-                    setattr(parent_module, "maskInput", new_layer_adapt_input)
+                    if not hasattr(parent_module, "maskInput"):
+                       setattr(parent_module, "maskInput", non_zero_filters)
 
                 new_layer =  nn.Conv2d(in_channels=in_channels, out_channels=new_out_channels,
                       kernel_size=layer.kernel_size, stride=layer.stride, padding=layer.padding,
@@ -230,6 +230,8 @@ def remove_prunned_channels_from_model(modelOriginal):
                     if layer.bias is not None:
                         new_layer.bias.data = layer.bias.data[non_zero_filters]
 
+                if new_out_channels != layer.out_channels:
+                    non_zero_filters_prev_layer = non_zero_filters
 
                 path_keys = str(nameLayer).split(".")
                 parent_module = modelFinal
@@ -237,12 +239,9 @@ def remove_prunned_channels_from_model(modelOriginal):
                     parent_module = getattr(parent_module, key)
 
                 setattr(parent_module,path_keys[-1],new_layer)
-                non_zero_filters_prev_layer = non_zero_filters
 
         if parent_module is not None and  isinstance(parent_module,DownsamplerBlock) and isinstance(layer, nn.Conv2d) and new_input_channel_next_layer == 0 :
-            #new_input_channel_next_layer = new_layer.in_channels+new_layer.out_channels
-            new_layer_adapt_input = nn.Conv2d(in_channels=new_layer.in_channels, out_channels=new_layer.out_channels, kernel_size=1, stride=1)
-            setattr(parent_module, "adaptingInput", new_layer_adapt_input)
+            setattr(parent_module, "maskInput", non_zero_filters_prev_layer)
 
         if isinstance(layer, nn.BatchNorm2d) and  new_input_channel_next_layer > 0:
             new_bn = nn.BatchNorm2d(new_input_channel_next_layer, eps=layer.eps)
@@ -283,7 +282,7 @@ def quantize_model_to_int8(model,input_transform_cityscapes,target_transform_cit
     model_int8 = convert(model_fp32_prepared)
 
     print("Saving the model ...")
-    torch.save(model_int8, f"{args.path_drive}/Models/Model_int8/{args.modelFilenameDrive}_model_int8.pth")
+    torch.save(model_int8, f"{args.path_drive}/ModelsMask/Model_int8/{args.modelFilenameDrive}_model_int8.pth")
 
     return model_int8
 
@@ -390,7 +389,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
-    print(f"Model Pruned Completely has been saved on the path {args.path_drive}Models/{args.modelFilenameDrive}/")
+    print(f"Model Pruned Completely has been saved on the path {args.path_drive}ModelsMask/{args.modelFilenameDrive}/")
 def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
     pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/"
     model = args.modelFilenameDrive
