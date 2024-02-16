@@ -18,7 +18,7 @@ from argparse import ArgumentParser
 import re
 from torch.optim import SGD, Adam, lr_scheduler, optimizer
 from torch.autograd import Variable
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
@@ -261,7 +261,7 @@ def train(args, model, enc=False):
     # 4.  Epsilon (eps) -->  è un piccolo valore aggiunto per migliorare la stabilità numerica dell'algoritmo. Aiuta a prevenire la divisione per zero durante l'aggiornamento dei parametri.
     # 5.  weight_decay -->  Il weight decay è un metodo di regolarizzazione che aiuta a prevenire l'overfitting riducendo leggermente i valori dei pesi ad ogni iterazione.
 
-    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
+    optimizer = Adam(model.parameters(), 5e-5, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)  ## scheduler 1
     # optimizer = torch.optim.AdamW(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08,weight_decay=1e-4)  ## scheduler 2
     # optimizer = torch.optim.SGD(model.parameters(),  5e-4, momentum=0.9, weight_decay=1e-4)
 
@@ -281,7 +281,12 @@ def train(args, model, enc=False):
     # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1 - ((epoch - 1) / args.num_epochs)), 0.9)  ## scheduler 2
     # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)  ## scheduler 2
-    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.00001) #scheduler 3
+    max_lr = 0.01  # Il massimo learning rate
+    steps_per_epoch = len(loader)  # Numero di batch (iterazioni) per epoca
+    total_steps = args.args.num_epochs * steps_per_epoch  # Numero totale di iterazioni
+
+    # Inizializzazione dello scheduler
+    scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
 
     start_epoch = 1
     if args.resume:

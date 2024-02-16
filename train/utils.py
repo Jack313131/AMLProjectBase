@@ -4,7 +4,7 @@ import shutil
 import sys
 import subprocess
 import time
-
+import re
 import torch.nn as nn
 import thop
 import torch
@@ -13,15 +13,15 @@ import logging
 import os
 from PIL import Image
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, OneCycleLR
 from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
 
-from main import CrossEntropyLoss2d
+from Loss import CrossEntropyLoss2d
 from transform import ToLabel, Relabel
 from dataset import cityscapes
 from erfnet import non_bottleneck_1d,DownsamplerBlock
-from google.colab import drive
+#from google.colab import drive
 from torch.quantization import quantize_dynamic, prepare, convert
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 
@@ -47,7 +47,7 @@ def connect_to_drive():
     path_drive = "/content/drive/MyDrive"
     if not os.path.exists(path_drive):
         print("Connecting to drive ... ")
-        drive.mount('/content/drive')
+        #drive.mount('/content/drive')
 
     print("Drive connected ... ")
 
@@ -66,17 +66,20 @@ def compute_difference_flop(modelOriginal,modelPruning):
     logger.setLevel(logging.WARNING)
 
     input = torch.randn(1, 3, 512, 1024).to("cuda" if torch.cuda.is_available() else "cpu")
+    modelOriginal = convert_model_from_dataparallel(modelOriginal).to("cuda" if torch.cuda.is_available() else "cpu")
+    modelPruning = convert_model_from_dataparallel(modelPruning).to("cuda" if torch.cuda.is_available() else "cpu")
     with suppress_stdout():
         flopsOriginal, paramsOriginal = thop.profile(modelOriginal, inputs=(input,))
         flopsPruning, paramsPrunning = thop.profile(modelPruning, inputs=(input,))
-    print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}")
-    print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
+    #print(f"FLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal-flopsPruning}")
+    #print(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n")
 
     return flopsOriginal,flopsPruning,paramsOriginal,paramsPrunning
 
 def remove_mask_from_model_with_pruning(model,state_dict):
 
     if isinstance(state_dict,nn.Module):
+        print("Model passed is already a completed model ....")
         return state_dict
     # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
     own_state = model.state_dict()
@@ -114,39 +117,69 @@ def remove_mask_from_model_with_pruning(model,state_dict):
                 own_state[name].copy_(param)
 
     return remove_prunned_channels_from_model(model)
+def remove_ansi_codes(text):
+    ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+    return ansi_escape.sub('', text)
 
 def print_and_save(output, file):
     print(output)
-    file.write(output + "\n")
+    file.write(remove_ansi_codes(output + "\n"))
 
 def save_model_mod_on_drive(model,args):
     filename = args.modelFilenameDrive
     if not ".pth" in filename:
         filename = args.modelFilenameDrive+".pth"
-    path_drive = args.path_drive+"/Models/"
+    path_drive = args.path_drive+"Models/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
-    torch.save(model, path_drive+dir_name+filename)
+    torch.save(model, dir_name+filename)
     print(f"The model {filename} has been saved on the path : {dir_name}")
 
 def set_args(__args):
     args = __args
     features_model_input = None
-    if hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None:
+    if hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'model_best' in args.loadWeightsPruned and not 'erfnetPruningType' in args.loadWeightsPruned:
         features_model_input = args.loadWeightsPruned.replace("model_best","erfnet").replace("non_bottleneck","non bottleneck 1d").replace(".pth","").split("_")
-    if features_model_input is not None and args.model is None:
-        args.model = features_model_input[0]
-    if features_model_input is not None and args.typePruning is None:
-        args.typePruning = features_model_input[2]
-    if features_model_input is not None and args.pruning is None:
-        args.pruning = float(int(features_model_input[3])/10)
-    if features_model_input is not None and args.typeNorm is None:
-        args.typeNorm = int(features_model_input[4].replace("L",""))
-    if features_model_input is not None and args.listLayerPruning is None:
-        args.listLayerPruning = [nameModule.replace(" ","_") for nameModule in features_model_input[features_model_input.index('module')+1 : features_model_input.index('Layer')]]
-    if features_model_input is not None and args.listNumLayerPruning is None and features_model_input[features_model_input.index('Layer')+1] !="All":
-        args.listNumLayerPruning = [int(numLayer) for numLayer in [features_model_input[features_model_input.index('Layer')+1:]]]
+
+        if features_model_input is not None and args.model is None:
+            args.model = features_model_input[0]
+        if features_model_input is not None and args.typePruning is None:
+            args.typePruning = features_model_input[2]
+        if features_model_input is not None and args.pruning is None:
+            args.pruning = float(int(features_model_input[3])/10)
+        if features_model_input is not None and args.typeNorm is None:
+            args.typeNorm = int(features_model_input[4].replace("L",""))
+        if features_model_input is not None and args.listLayerPruning is None:
+            args.listLayerPruning = [nameModule.replace(" ","_") for nameModule in features_model_input[features_model_input.index('module')+1 : features_model_input.index('Layer')]]
+        if features_model_input is not None and args.listNumLayerPruning is None and features_model_input[features_model_input.index('Layer')+1] !="All":
+            args.listNumLayerPruning = [int(numLayer) for numLayer in [features_model_input[features_model_input.index('Layer')+1:]]]
+
+    condition1 = hasattr(args,
+                         'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned
+    condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
+    if condition1 or condition2:
+
+        if condition1:
+            features_model_input = args.loadWeightsPruned
+        elif condition2:
+          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","")
+
+
+        features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
+
+        if features_model_input is not None and not hasattr(args,'model'):
+            args.model = features_model_input[0]
+        if features_model_input is not None and (not hasattr(args,'typePruning') or args.typePruning is None):
+            args.typePruning = features_model_input[1]
+        if features_model_input is not None and (not hasattr(args,'pruning') or args.pruning is None):
+            args.pruning = float(features_model_input[5])
+        if features_model_input is not None and (not hasattr(args,'typeNorm') or args.typeNorm is None):
+            args.typeNorm = int(features_model_input[3])
+        if features_model_input is not None and (not hasattr(args,'listLayerPruning') or len(args.listLayerPruning)==0):
+            args.listLayerPruning = [nameModule.replace(" ", "_") for nameModule in features_model_input[features_model_input.index('Layer') + 1: features_model_input.index('NumLayerPruning')]]
+        if features_model_input is not None and (not hasattr(args,'listNumLayerPruning') or features_model_input[features_model_input.index('Layer') + 1] != "All"):
+            args.listNumLayerPruning = [int(numLayer) for numLayer in features_model_input[features_model_input.index('NumLayerPruning') + 1:]]
 
     args.path_drive="/content/drive/MyDrive/AML/"
     args.modelFilenameDrive =define_name_model(args)
@@ -159,7 +192,7 @@ def remove_prunned_channels_from_model(modelOriginal):
     modelFinal = copy.deepcopy(modelOriginal)
     new_input_channel_next_layer = 0
     parent_module = None
-    for nameLayer, layer in  modelOriginal.named_modules():
+    for nameLayer, layer in modelOriginal.named_modules():
         if isinstance(layer, nn.Conv2d) and not 'output_conv' in nameLayer:
             if new_input_channel_next_layer > 0:
                 in_channels = new_input_channel_next_layer
@@ -175,14 +208,15 @@ def remove_prunned_channels_from_model(modelOriginal):
             new_input_channel_next_layer = new_out_channels if new_out_channels != layer.out_channels else 0
             if new_out_channels != layer.out_channels or in_channels != layer.in_channels:
 
-                if input_changed == False and layer.in_channels != new_out_channels:
-                    new_layer_adapt_input = nn.Conv2d(layer.in_channels, new_out_channels, kernel_size=1, stride=1)
+                if new_out_channels != in_channels:
+                    new_layer_adapt_input = nn.Conv2d(in_channels=in_channels, out_channels=new_out_channels, kernel_size=1, stride=1)
                     path_keys = str(nameLayer).split(".")
                     parent_module = modelFinal
                     for key in path_keys[0:-1]:  # Vai fino al genitore del layer
                         parent_module = getattr(parent_module, key)
 
-                    setattr(parent_module, "adaptingInput", new_layer_adapt_input)
+                    if not hasattr(parent_module,"adaptingInput"):
+                        setattr(parent_module, "adaptingInput", new_layer_adapt_input)
 
                 new_layer =  nn.Conv2d(in_channels=in_channels, out_channels=new_out_channels,
                       kernel_size=layer.kernel_size, stride=layer.stride, padding=layer.padding,
@@ -295,7 +329,13 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     criterion = CrossEntropyLoss2d(weight)
     optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
-    scheduler = CosineAnnealingLR(optimizer, T_max=20, eta_min=0.00001)
+    max_lr = 0.01  # Il massimo learning rate
+    num_epochs = 20
+    steps_per_epoch = len(loader_finetuning_adapting_layers)  # Numero di batch (iterazioni) per epoca
+    total_steps = num_epochs * steps_per_epoch  # Numero totale di iterazioni
+
+    # Inizializzazione dello scheduler
+    scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
 
     print("Start fine tuning pruning for adding layers ... ")
     print("Freezing layer not named : adaptingInput")
@@ -307,7 +347,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
             param.requires_grad = True
 
-    for epoch in range(1, 15):
+    for epoch in range(1, num_epochs):
         print("----- TRAINING - EPOCH", epoch, "-----")
         epoch_loss = []
         time_train = []
@@ -357,7 +397,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
-    print(f"Model Pruned Completely has been saved on the path {args.path_drive}/Models/{args.modelFilenameDrive}/")
+    print(f"Model Pruned Completely has been saved on the path {args.path_drive}Models/{args.modelFilenameDrive}/")
 def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
     pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/"
     model = args.modelFilenameDrive
@@ -392,3 +432,15 @@ def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
             print(f"Saved on drive on the path {path_drive}")
     else:
         print("Drive is not linked ...")
+
+def direct_quantize(args, model, test_loader):
+    for i, (data, target, filename, filenameGt) in enumerate(test_loader, 1):
+        if not args.cpu:
+            data = data.cuda()
+            target = target.cuda()
+        model.quantize_forward(data)
+        if args.cpu and i % 10 == 0:
+            break
+        if i % 500 == 0:
+            break
+    print('direct quantization finished')
