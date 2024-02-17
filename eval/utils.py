@@ -129,13 +129,23 @@ def save_model_mod_on_drive(model,args):
     filename = args.modelFilenameDrive
     if not ".pth" in filename:
         filename = args.modelFilenameDrive+".pth"
-    path_drive = args.path_drive+"ModelsExtra/"
+    path_drive = args.path_drive+f"ModelsExtra/{args.load_dir_model_mod}/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
     torch.save(model, dir_name+filename)
     print(f"The model {filename} has been saved on the path : {dir_name}")
 
+def save_checkpoint_mod_on_drive(checkpoint,args,epoch):
+    filename = args.modelFilenameDrive
+    if not ".pth" in filename:
+        filename = args.modelFilenameDrive+".pth"
+    path_drive = args.path_drive+f"ModelsExtra/{args.load_dir_model_mod}/"
+    Path(path_drive).mkdir(parents=True,exist_ok=True)
+    dir_name = path_drive+filename.replace(".pth","/")
+    Path(dir_name).mkdir(parents=True,exist_ok=True)
+    torch.save(checkpoint, dir_name+'checkpoint.pth.tar')
+    print(f"The Checkpoint for the epoch : {epoch} has been saved on the path : {dir_name}")
 def set_args(__args):
     args = __args
     features_model_input = None
@@ -160,11 +170,13 @@ def set_args(__args):
     condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
     if condition1 or condition2:
 
-
+        split_name = args.loadWeightsPruned.split("/")
         if condition1:
-            features_model_input = args.loadWeightsPruned.split("/")[-1]
+            args.load_dir_model_mod = split_name[-2]
+            features_model_input = split_name[-1]
         elif condition2:
-          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","").split("/")[-1]
+          args.load_dir_model_mod = split_name[-2]
+          features_model_input = split_name[-1].replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","").split("/")[-1]
 
 
         features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
@@ -340,6 +352,21 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
     # Inizializzazione dello scheduler
     scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
 
+    path_drive = args.path_drive + f"ModelsExtra/{args.load_dir_model_mod}/"
+    checkpoint_path = path_drive + args.modelFilenameDrive.replace(".pth", "/")+'checkpoint.pth.tar'
+    start_epoch = 1
+    if os.path.exists(checkpoint_path):
+        print(f"Retrieving checkpoint from the path : {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path)
+        start_epoch = checkpoint['epoch']
+        if "state_dict" in checkpoint and not 'model' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        if 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
+        print("=> Loaded checkpoint at epoch {}".format(checkpoint['epoch']))
+
+
     print("Start fine tuning pruning for adding layers ... ")
     print("Freezing layer not named : adaptingInput")
     for name, param in model.named_parameters():
@@ -350,7 +377,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
             param.requires_grad = True
 
-    for epoch in range(1, num_epochs+1):
+    for epoch in range(start_epoch, num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
         epoch_loss = []
         time_train = []
@@ -397,6 +424,14 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
                 average = sum(epoch_loss) / len(epoch_loss)
                 print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})',
                       "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
+
+        save_checkpoint_mod_on_drive({
+            'epoch': epoch + 1,
+            'arch': str(model),
+            'scheduler': scheduler.state_dict(),
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+        },args,epoch)
 
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
