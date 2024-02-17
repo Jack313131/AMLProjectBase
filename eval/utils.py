@@ -333,7 +333,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
     criterion = CrossEntropyLoss2d(weight)
     optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
     max_lr = 0.01  # Il massimo learning rate
-    num_epochs = 20
+    num_epochs = 10
     steps_per_epoch = len(loader_finetuning_adapting_layers)  # Numero di batch (iterazioni) per epoca
     total_steps = num_epochs * steps_per_epoch  # Numero totale di iterazioni
 
@@ -393,7 +393,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # epoch_loss è un vettore in cui sono aggiunti ad ogni batch il valore ritornato dalla loss function
             epoch_loss.append(loss.item())
             time_train.append(time.time() - start_time)
-            if step % 50 == 0:
+            if step % 200 == 0:
                 average = sum(epoch_loss) / len(epoch_loss)
                 print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})',
                       "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
