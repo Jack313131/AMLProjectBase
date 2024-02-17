@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 from torchvision.transforms import ToTensor, ToPILImage
 
-import utilsMask as myutils
+import utils as myutils
 from dataset import cityscapes
 # from erfnet import ERFNet
 from erfnet import Net

@@ -316,8 +316,10 @@ def define_name_model(args):
         namePruning if args.pruning else "")
 
 def training_new_layer_adapting(model,input_transform_cityscapes,target_transform_cityscapes,weight,args):
+    dataset_extra = args.datadir+"_extra"
+    print(f"Using the dataset {dataset_extra}")
     loader_finetuning_adapting_layers = DataLoader(
-        cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
+        cityscapes(dataset_extra, input_transform_cityscapes, target_transform_cityscapes, subset='train'),
         num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     # commando per forzare il modello ad essere in modelità valutazione
@@ -328,9 +330,9 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
         weight = weight.cuda()
 
     criterion = CrossEntropyLoss2d(weight)
-    optimizer = Adam(model.parameters(), 5e-8, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
+    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
     max_lr = 0.01  # Il massimo learning rate
-    num_epochs = 20
+    num_epochs = 15
     steps_per_epoch = len(loader_finetuning_adapting_layers)  # Numero di batch (iterazioni) per epoca
     total_steps = num_epochs * steps_per_epoch  # Numero totale di iterazioni
 
