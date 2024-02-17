@@ -129,7 +129,7 @@ def save_model_mod_on_drive(model,args):
     filename = args.modelFilenameDrive
     if not ".pth" in filename:
         filename = args.modelFilenameDrive+".pth"
-    path_drive = args.path_drive+"Models/"
+    path_drive = args.path_drive+"ModelsExtra/"
     Path(path_drive).mkdir(parents=True,exist_ok=True)
     dir_name = path_drive+filename.replace(".pth","/")
     Path(dir_name).mkdir(parents=True,exist_ok=True)
@@ -160,10 +160,11 @@ def set_args(__args):
     condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
     if condition1 or condition2:
 
+
         if condition1:
-            features_model_input = args.loadWeightsPruned
+            features_model_input = args.loadWeightsPruned.split("/")[-1]
         elif condition2:
-          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","")
+          features_model_input = args.loadModelPruned.replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","").split("/")[-1]
 
 
         features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
@@ -332,7 +333,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
     criterion = CrossEntropyLoss2d(weight)
     optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999), eps=1e-08, weight_decay=5e-5)
     max_lr = 0.01  # Il massimo learning rate
-    num_epochs = 15
+    num_epochs = 20
     steps_per_epoch = len(loader_finetuning_adapting_layers)  # Numero di batch (iterazioni) per epoca
     total_steps = num_epochs * steps_per_epoch  # Numero totale di iterazioni
 
@@ -349,7 +350,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
             # Assicurati che i parametri che non devono essere congelati siano settati per il gradiente
             param.requires_grad = True
 
-    for epoch in range(1, num_epochs):
+    for epoch in range(1, num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
         epoch_loss = []
         time_train = []
@@ -399,7 +400,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
 
     print("Model Pruned Completely ... ")
     save_model_mod_on_drive(model=model,args = args)
-    print(f"Model Pruned Completely has been saved on the path {args.path_drive}Models/{args.modelFilenameDrive}/")
+    print(f"Model Pruned Completely has been saved on the path {args.path_drive}ModelsExtra/{args.modelFilenameDrive}/")
 def saveOnDrive(epoch=None, model="", pathOriginal="",args=None):
     pathOriginal = f"/content/AMLProjectBase/save/{args.savedir}/"
     model = args.modelFilenameDrive
