@@ -292,7 +292,7 @@ def main(args):
     dir_model = args.modelFilenameDrive.replace(".pth", "/")
     if not os.path.exists(f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}"):
         os.makedirs(f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}")
-    dir_save_result = f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}results.txt"
+    dir_save_result = f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}/results.txt"
     print(f"Saving result on path : {dir_save_result}")
     # Apertura (o creazione se non esiste) del file in modalità di scrittura
     with open(dir_save_result, 'w') as file:

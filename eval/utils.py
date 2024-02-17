@@ -353,7 +353,7 @@ def training_new_layer_adapting(model,input_transform_cityscapes,target_transfor
     scheduler = OneCycleLR(optimizer, max_lr=max_lr, total_steps=total_steps)
 
     path_drive = args.path_drive + f"ModelsExtra/{args.load_dir_model_mod}/"
-    checkpoint_path = path_drive + args.modelFilenameDrive.replace(".pth", "/")+'checkpoint.pth.tar'
+    checkpoint_path = path_drive + args.modelFilenameDrive.replace(".pth", "/")+'/checkpoint.pth.tar'
     start_epoch = 1
     if os.path.exists(checkpoint_path):
         print(f"Retrieving checkpoint from the path : {checkpoint_path}")
