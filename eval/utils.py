@@ -170,7 +170,7 @@ def set_args(__args):
     condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
     if condition1 or condition2:
 
-        split_name = args.loadWeightsPruned.split("/")
+        split_name = args.loadWeightsPruned.split("/") if condition1 else args.loadModelPruned.split("/")
         if condition1:
             args.load_dir_model_mod = split_name[-2]
             features_model_input = split_name[-1]
@@ -191,7 +191,7 @@ def set_args(__args):
             args.typeNorm = int(features_model_input[3])
         if features_model_input is not None and (not hasattr(args,'listLayerPruning') or len(args.listLayerPruning)==0):
             args.listLayerPruning = [nameModule.replace(" ", "_") for nameModule in features_model_input[features_model_input.index('Layer') + 1: features_model_input.index('NumLayerPruning')]]
-        if features_model_input is not None and (not hasattr(args,'listNumLayerPruning') or features_model_input[features_model_input.index('Layer') + 1] != "All"):
+        if features_model_input is not None and (not hasattr(args,'listNumLayerPruning') or features_model_input[features_model_input.index('NumLayerPruning') + 1] != "ALLayer"):
             args.listNumLayerPruning = [int(numLayer) for numLayer in features_model_input[features_model_input.index('NumLayerPruning') + 1:]]
 
     args.path_drive="/content/drive/MyDrive/AML/"
@@ -317,7 +317,7 @@ def define_name_model(args):
             nameInnerStateMod += ")"
             for layer in args.listLayerPruning:
                 namePruning = namePruning + f"_{layer}{nameInnerStateMod}"
-            numberLayer = "_AllLayer"
+            numberLayer = "_ALLayer"
             if len(args.listNumLayerPruning) > 0:
                 numberLayer = "_NumLayerPruning"
                 for number in args.listNumLayerPruning:
