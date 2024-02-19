@@ -166,7 +166,7 @@ def train(args, model, enc=False):
         weight = weight.cuda()
     criterion = CrossEntropyLoss2d(weight)
 
-    savedir = f'../save/{args.savedir}'
+    savedir = args.savedir
 
     if (enc):
         automated_log_path = savedir + "/automated_log_encoder.txt"
@@ -606,7 +606,7 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 
 
 def main(args):
-    savedir = f'../save/{args.savedir}'
+    savedir = args.savedir
 
     if not os.path.exists(savedir):
         os.makedirs(savedir)
@@ -644,7 +644,7 @@ def main(args):
                 resized_weight = weight.new_zeros((16, 20, 3, 3))
                 resized_weight[:, :19, :, :] = weight  # Copy existing values
                 state_dict['fullconv.weight'] = resized_weight
-            print(state_dict['fullconv.weight'].shape)
+              print(state_dict['fullconv.weight'].shape)
             state_dict = {"module."+k: v for k, v in state_dict.items()}
             model.load_state_dict(state_dict)
         except AssertionError:
@@ -714,8 +714,10 @@ if __name__ == '__main__':
     parser.add_argument('--steps-loss', type=int, default=50)
     parser.add_argument('--steps-plot', type=int,
                         default=50)  # variabile per determinare se e con quale frequenza visualizzare le metriche o le immagini durante l'addestramento (minore di 0 nessuna visualizzazione)
-    parser.add_argument('--epochs-save', type=int, default=50)  # You can use this value to save model every X epochs
-    parser.add_argument('--savedir', required=False)
+
+    parser.add_argument('--epochs-save', type=int, default=0)  # You can use this value to save model every X epochs
+    parser.add_argument('--savedir', required=True)
+
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder')  # , default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize',
