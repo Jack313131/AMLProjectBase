@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Percorso della directory contenente le immagini di ground truth
-gt_images_directory = '/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AMLProjectBase/dataset2/Validation_Dataset/RoadAnomaly/labels_masks'
+gt_images_directory = '/Users/jacopospaccatrosi/Desktop/Polito/Advanced Machine Learning/My Final Project/AMLProjectBase/dataset2/Validation_Dataset/FS_LostFound_full/labels_masks'
 
 # Elenco di tutti i file nella directory
 gt_image_files = os.listdir(gt_images_directory)

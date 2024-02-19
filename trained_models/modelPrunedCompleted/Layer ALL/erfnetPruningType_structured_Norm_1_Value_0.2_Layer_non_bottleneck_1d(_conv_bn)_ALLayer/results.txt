@@ -1,0 +1,30 @@
+The model is with pruning structured (amount : 0.2 & norm = 1) for the modules :  non_bottleneck_1d applied on layers :  
+---------------------------------------
+Took 135.04814171791077 seconds
+=======================================
+Per-Class IoU:
+97.62 (ModelOriginal) - 56.12 (Model Pruned) -- Road
+81.37 (ModelOriginal) - 7.18 (Model Pruned) -- sidewalk
+90.77 (ModelOriginal) - 23.39 (Model Pruned) -- building
+49.43 (ModelOriginal) - 0.02 (Model Pruned) -- wall
+54.93 (ModelOriginal) - 0.15 (Model Pruned) -- fence
+60.81 (ModelOriginal) - 0.66 (Model Pruned) -- pole
+62.60 (ModelOriginal) - 0.21 (Model Pruned) -- traffic light
+72.32 (ModelOriginal) - 1.27 (Model Pruned) -- traffic sign
+91.35 (ModelOriginal) - 39.13 (Model Pruned) -- vegetation
+60.97 (ModelOriginal) - 1.78 (Model Pruned) -- terrain
+93.38 (ModelOriginal) - 9.04 (Model Pruned) -- sky
+76.11 (ModelOriginal) - 0.02 (Model Pruned) -- person
+53.45 (ModelOriginal) - 0.06 (Model Pruned) -- rider
+92.91 (ModelOriginal) - 12.84 (Model Pruned) -- car
+72.78 (ModelOriginal) - 0.01 (Model Pruned) -- truck
+78.87 (ModelOriginal) - 0.03 (Model Pruned) -- bus
+63.86 (ModelOriginal) - 0.05 (Model Pruned) -- train
+46.41 (ModelOriginal) - 0.22 (Model Pruned) -- motorcycle
+71.89 (ModelOriginal) - 0.02 (Model Pruned) -- bicycle
+=======================================
+MEAN IoU: 72.20% (Model Original) --- MEAN IoU: 8.01%
+
+FLOPs modelOriginal : 30089805824.0 - FLOPs modelPruning : 20697153536.0 the difference is : 9392652288.0
+Params modelOriginal : 2064256.0 - Params modelPruning : 1370880.0 the difference is : 693376.0
+
