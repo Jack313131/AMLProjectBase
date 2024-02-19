@@ -8,7 +8,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, Resize
 from torchvision.transforms import ToTensor, ToPILImage
-
+from Loss import CrossEntropyLoss2d,weight
 import utils as myutils
 from dataset import cityscapes
 from erfnet import Net
@@ -31,62 +31,23 @@ target_transform_cityscapes = Compose([
     Relabel(255, 19),  # ignore label to 19
 ])
 
-
-class CrossEntropyLoss2d(torch.nn.Module):
-    def __init__(self, weight=None, ignores_index=None):
-        super().__init__()
-
-        if ignores_index is not None:
-            self.loss = torch.nn.NLLLoss(weight, ignore_index=ignores_index)
-        else:
-            self.loss = torch.nn.NLLLoss(weight)
-
-    def forward(self, outputs, targets):
-
-        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)  # + reg_term
-
-
 def main(args):
-    weight = torch.ones(NUM_CLASSES)
 
-    weight[0] = 2.8149201869965
-    weight[1] = 6.9850029945374
-    weight[2] = 3.7890393733978
-    weight[3] = 9.9428062438965
-    weight[4] = 9.7702074050903
-    weight[5] = 9.5110931396484
-    weight[6] = 10.311357498169
-    weight[7] = 10.026463508606
-    weight[8] = 4.6323022842407
-    weight[9] = 9.5608062744141
-    weight[10] = 7.8698215484619
-    weight[11] = 9.5168733596802
-    weight[12] = 10.373730659485
-    weight[13] = 6.6616044044495
-    weight[14] = 10.260489463806
-    weight[15] = 10.287888526917
-    weight[16] = 10.289801597595
-    weight[17] = 10.405355453491
-    weight[18] = 10.138095855713
-    weight[19] = 0
-
-    print(f"Evaluation of mIoU using the metrics : {args.typeConfidence}")
+    print(f"Evaluation of mIoU using the metrics : {args.method}")
 
     modelpath = args.loadDir + args.loadModel
     weightspath = args.loadDir + args.loadWeights
 
-    if args.loadWeightsPruned:
-        path_model_mod = args.loadDir + args.loadWeightsPruned
-    if args.loadModelPruned:
+    if args.compareModel:
+        assert args.loadModelPruned is not None , "Path for the mod model to compare is missing ..."
         path_model_mod = args.loadDir + args.loadModelPruned
-
-    #path_model_mod = args.loadDir+"model_best_erfnetPruningType_structured_Norm_1_Value_0.1_Module_encoder_Layer_non_bottleneck_1d(_conv)_NumLayerPruning_1_2_3_4_5.pth"
+        modelMod = Net(NUM_CLASSES)
 
     print("Loading model Original: " + modelpath)
     print("Loading weights Original: " + weightspath)
 
     modelOriginal = Net(NUM_CLASSES)
-    modelMod = Net(NUM_CLASSES)
+
 
     if (not args.cpu):
         modelOriginal = torch.nn.DataParallel(modelOriginal).cuda()
@@ -106,33 +67,32 @@ def main(args):
     modelOriginal = load_my_state_dict(modelOriginal, torch.load(weightspath, map_location=lambda storage, loc: storage))
     print("Model and weights Original LOADED successfully")
 
-    print("Loading model and weights Mod: " + path_model_mod)
-
-    modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
-    print("Model and weights Mod LOADED successfully")
-    if not args.loadModelPruned and args.loadWeightsPruned:
+    if args.compareModel:
+        print("Loading model and weights Mod: " + path_model_mod)
+        modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
+        print("Model and weights Mod LOADED successfully")
         layer_names = list(modelMod.state_dict().keys())
         if any('adaptingInput' in name for name in layer_names):
             myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
                                             target_transform_cityscapes = target_transform_cityscapes, weight=weight,args=args)
 
-    if args.typeQuantization == "int8":
-        print("Applying quantization to int8 ... ")
-        modelMod.eval()
-        modelMod.set_config('x86')
-        modelMod.quantize()
-        print("Model Mod Quantized ...")
-        calibration_dataloader = DataLoader(
-            cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset='val'),
-            num_workers=torch.cuda.device_count(), batch_size=6, shuffle=False)
+        if args.typeQuantization == "int8":
+            print("Applying quantization to int8 ... ")
+            modelMod.eval()
+            modelMod.set_config('x86')
+            modelMod.quantize()
+            print("Model Mod Quantized ...")
+            calibration_dataloader = DataLoader(
+                cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset='val'),
+                num_workers=torch.cuda.device_count(), batch_size=6, shuffle=False)
 
-        myutils.direct_quantize(args, modelMod, calibration_dataloader)
-        modelMod.freeze()
-        print("Model Mod calibrated ...")
+            myutils.direct_quantize(args, modelMod, calibration_dataloader)
+            modelMod.freeze()
+            print("Model Mod calibrated ...")
 
-    if args.typeQuantization == "float16":
-        print("Applying model to float16 ... ")
-        modelMod = modelMod.half()
+        if args.typeQuantization == "float16":
+            print("Applying model to float16 ... ")
+            modelMod = modelMod.half()
 
     if (not os.path.exists(args.datadir)):
         print("Error: datadir could not be loaded")
@@ -142,14 +102,18 @@ def main(args):
         num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     iouEvalValOriginal = iouEval(NUM_CLASSES)
-    iouEvalValMod = iouEval(NUM_CLASSES)
+    if args.compareModel:
+        iouEvalValMod = iouEval(NUM_CLASSES)
 
     if torch.cuda.is_available():
-        modelMod = modelMod.to('cuda')
         modelOriginal = modelOriginal.to('cuda')
+        if args.compareModel:
+            modelMod = modelMod.to('cuda')
+
 
     modelOriginal.eval()
-    modelMod.eval()
+    if args.compareModel:
+        modelMod.eval()
 
     start = time.time()
     print("\n\nStarting evaluation ....")
@@ -161,22 +125,23 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputsOriginal = modelOriginal(inputs)
-            outputsMod = modelMod(inputs)
-            if args.typeQuantization != "int8":
+            if args.compareModel:
                 outputsMod = modelMod(inputs)
-            elif args.typeQuantization == "int8":
-                outputsMod = modelMod.quantize_inference(inputs)
+                finalOutputMod = outputsMod.max(1)[1].unsqueeze(1)
+                iouEvalValMod.addBatch(finalOutputMod.data, labels)
+
+        if step ==0:
+            myutils.show_prediction_model(outputsOriginal.squeeze(0),filename[0].split('/')[-2:],True,args=args)
 
         finalOutputOriginal = outputsOriginal.max(1)[1].unsqueeze(1)
-        finalOutputMod = outputsMod.max(1)[1].unsqueeze(1)
 
-        if args.typeConfidence.casefold().replace(" ", "") == "msp":
+        if args.method.casefold().replace(" ", "") == "msp":
             temperature = args.temperature
             scaledresult = outputsOriginal / temperature
             probs = torch.nn.functional.softmax(scaledresult, 1)  # result = modelOriginal(images), F = torch.nn.functional
             _, predicted_classes = torch.max(probs, dim=1)
             finalOutputOriginal = predicted_classes.unsqueeze(1)
-        if args.typeConfidence.casefold().replace(" ", "") == "maxentropy":
+        if args.method.casefold().replace(" ", "") == "maxentropy":
             eps = 1e-10
             probs = torch.nn.functional.softmax(outputsOriginal, dim=1)
             entropy = torch.div(torch.sum(-probs * torch.log(probs + eps), dim=1),
@@ -187,34 +152,41 @@ def main(args):
             finalOutputOriginal = predicted_classes.unsqueeze(1)
 
         iouEvalValOriginal.addBatch(finalOutputOriginal.data, labels)
-        iouEvalValMod.addBatch(finalOutputMod.data, labels)
+
 
         filenameSave = filename[0].split("leftImg8bit/")[1]
 
 
     iouValOriginal, iou_classes_original = iouEvalValOriginal.getIoU()
-    iouValMod, iou_classes_mod = iouEvalValMod.getIoU()
+    if args.compareModel:
+        iouValMod, iou_classes_mod = iouEvalValMod.getIoU()
 
     iou_classes_str_original = []
     for i in range(iou_classes_original.size(0)):
         iouStr = getColorEntry(iou_classes_original[i]) + '{:0.2f}'.format(iou_classes_original[i] * 100) + '\033[0m'
         iou_classes_str_original.append(iouStr)
 
-    iou_classes_str_mod = []
-    for i in range(iou_classes_mod.size(0)):
-        iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
-        iou_classes_str_mod.append(iouStr)
+    if args.compareModel:
+        iou_classes_str_mod = []
+        for i in range(iou_classes_mod.size(0)):
+            iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
+            iou_classes_str_mod.append(iouStr)
 
+    path_result = '../save/'
     class_name = ["Road", "sidewalk","building", "wall", "fence", "pole", "traffic light", "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
-    name_modules = " ".join(str(name_module) for name_module in args.listLayerPruning)
-    num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
-    text_model = (f"The model is with pruning {args.typePruning} (amount : {args.pruning} & norm = {args.typeNorm}) "
-                  f"for the modules :  {name_modules} applied on layers :  {num_layers}")
+    if args.compareModel:
+        name_modules = " ".join(str(name_module) for name_module in args.listLayerPruning)
+        num_layers = " ".join(str(num_layer) for num_layer in args.listNumLayerPruning)
+        text_model = (f"The model is with pruning {args.typePruning} (amount : {args.pruning} & norm = {args.typeNorm}) "
+                      f"for the modules :  {name_modules} applied on layers :  {num_layers}")
+        dir_model = args.modelFilenameDrive.replace(".pth", "/")
+        if myutils.is_drive_connect() == True:
+            path_result = f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}"
 
-    dir_model = args.modelFilenameDrive.replace(".pth", "/")
-    if not os.path.exists(f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}"):
-        os.makedirs(f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}")
-    dir_save_result = f"{args.path_drive}ModelsExtra/{args.load_dir_model_mod}/{dir_model}/results.txt"
+    if not os.path.exists(path_result):
+        os.makedirs(path_result)
+
+    dir_save_result = f"{path_result}/results_miou.txt"
     print(f"Saving result on path : {dir_save_result}")
 
     with open(dir_save_result, 'w') as file:
@@ -225,18 +197,24 @@ def main(args):
 
         myutils.print_and_save("Per-Class IoU:", file)
         for i in range(len(iou_classes_str_original)):
-            myutils.print_and_save(
+            if args.compareModel:
+                myutils.print_and_save(
                 f"{iou_classes_str_original[i]} (ModelOriginal) - {iou_classes_str_mod[i]} (Model Pruned) -- {class_name[i]}",
                 file)
+            else:
+                myutils.print_and_save(
+                    f"{iou_classes_str_original[i]} -- {class_name[i]}",file)
 
         myutils.print_and_save("=======================================", file)
         iouStr = getColorEntry(iouValOriginal) + '{:0.2f}'.format(iouValOriginal * 100) + '\033[0m'
-        iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
-        myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
-        flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
-        myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}",file)
-        myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n",file)
-
+        if args.compareModel:
+            iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
+            myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
+            flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
+            myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}",file)
+            myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n",file)
+        else:
+            myutils.print_and_save(f"MEAN IoU: {iouStr}%", file)
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -245,7 +223,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--loadDir', default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
-    parser.add_argument('--loadWeightsPruned', default="")
+    parser.add_argument('--loadWeightsPruned', default=None)
     parser.add_argument("--loadModelPruned",default="")
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--subset', default="val")  # can be val or train (must have labels)
@@ -253,18 +231,11 @@ if __name__ == '__main__':
     parser.add_argument('--num-workers', type=int, default=torch.cuda.device_count())
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true', default=not torch.cuda.is_available())
-    parser.add_argument('--typeConfidence', default='MaxLogit')
+    parser.add_argument('--method', default='MaxLogit')
     parser.add_argument("--temperature", default=1.0)
-    parser.add_argument("--saveCheckpointDriveAfterNumEpoch", type=int, default=1)
-    parser.add_argument("--pruning", type=float, default=None)
-    parser.add_argument("--typePruning", type=str, default=None)
-    parser.add_argument("--listInnerLayerPruning", nargs='+', default=['conv', 'bn'])
-    parser.add_argument("--listLayerPruning", nargs='+', default=[])
-    parser.add_argument("--listWeight", nargs='+', default=['weight'])
-    parser.add_argument("--typeNorm", type=int, default=None)
-    parser.add_argument("--listNumLayerPruning", nargs='+', help='', default=[])
-    parser.add_argument("--moduleErfnetPruning", nargs='+', help='Module List', default=[])
+    parser.add_argument("--pruning", type=float, default=0)
     parser.add_argument("--typeQuantization", type=str, default="float32")
+    parser.add_argument("--compareModel", action='store_true')
 
     args = myutils.set_args(parser.parse_args())
     #myutils.connect_to_drive()

@@ -33,3 +33,25 @@ class CrossEntropyLoss2d(torch.nn.Module):
         # prima di passare al confronto tra previsioni del modello e ground truth, la predizione del modello viene passata ad una softmax per ottenere un vettore di probabilità, dove ogni valore rappresenta la probabilità che un dato pixel appartenga a una particolare classe.
         # Poi, self.loss, che è la funzione NLLLoss2d, viene applicata per calcolare la perdita effettiva. Questa funzione calcola la log likelihood negativa tra le previsioni (dopo aver applicato log_softmax) e le etichette vere.
         return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)  # + reg_term
+
+weight = torch.ones(20)
+weight[0] = 2.8149201869965
+weight[1] = 6.9850029945374
+weight[2] = 3.7890393733978
+weight[3] = 9.9428062438965
+weight[4] = 9.7702074050903
+weight[5] = 9.5110931396484
+weight[6] = 10.311357498169
+weight[7] = 10.026463508606
+weight[8] = 4.6323022842407
+weight[9] = 9.5608062744141
+weight[10] = 7.8698215484619
+weight[11] = 9.5168733596802
+weight[12] = 10.373730659485
+weight[13] = 6.6616044044495
+weight[14] = 10.260489463806
+weight[15] = 10.287888526917
+weight[16] = 10.289801597595
+weight[17] = 10.405355453491
+weight[18] = 10.138095855713
+weight[19] = 0

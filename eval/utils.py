@@ -16,7 +16,9 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, OneCycleLR
 from torchvision.transforms import ToTensor, ToPILImage
 from torch.utils.data import DataLoader
-
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from Loss import CrossEntropyLoss2d
 from transform import ToLabel, Relabel
 from dataset import cityscapes
@@ -50,6 +52,9 @@ def connect_to_drive():
         #drive.mount('/content/drive')
 
     print("Drive connected ... ")
+
+def is_drive_connect():
+    return os.path.exists("/content/drive/MyDrive")
 
 @contextlib.contextmanager
 def suppress_stdout():
@@ -149,6 +154,8 @@ def save_checkpoint_mod_on_drive(checkpoint,args,epoch):
 def set_args(__args):
     args = __args
     features_model_input = None
+    if hasattr(args, 'loadModel'):
+        args.model = args.loadModel.replace('.py','')
     if hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'model_best' in args.loadWeightsPruned and not 'erfnetPruningType' in args.loadWeightsPruned:
         features_model_input = args.loadWeightsPruned.replace("model_best","erfnet").replace("non_bottleneck","non bottleneck 1d").replace(".pth","").split("_")
 
@@ -165,8 +172,7 @@ def set_args(__args):
         if features_model_input is not None and args.listNumLayerPruning is None and features_model_input[features_model_input.index('Layer')+1] !="All":
             args.listNumLayerPruning = [int(numLayer) for numLayer in [features_model_input[features_model_input.index('Layer')+1:]]]
 
-    condition1 = hasattr(args,
-                         'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned
+    condition1 = hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned
     condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
     if condition1 or condition2:
 
@@ -182,6 +188,8 @@ def set_args(__args):
         features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
 
         if features_model_input is not None and not hasattr(args,'model'):
+            args.model = features_model_input[0]
+        if features_model_input is not None and not hasattr(args, 'loadModel'):
             args.model = features_model_input[0]
         if features_model_input is not None and (not hasattr(args,'typePruning') or args.typePruning is None):
             args.typePruning = features_model_input[1]
@@ -325,8 +333,8 @@ def define_name_model(args):
 
             namePruning = namePruning + numberLayer
 
-    return args.model + ("FreezingBackbone" if args.freezingBackbone else "") + (
-        namePruning if args.pruning else "")
+    return args.model + ("FreezingBackbone" if hasattr(args,'freezingBackbone') else "") + (
+        namePruning if hasattr(args,'pruning') and args.pruning > 0 else "")
 
 def training_new_layer_adapting(model,input_transform_cityscapes,target_transform_cityscapes,weight,args):
     dataset_extra = args.datadir+"_extra"
@@ -482,3 +490,64 @@ def direct_quantize(args, model, test_loader):
         if i % 500 == 0:
             break
     print('direct quantization finished')
+
+def show_prediction_model(output,nameFile="",saveResult=False,args=None):
+    class_name = ["Road", "sidewalk", "building", "wall", "fence", "pole", "traffic light", "traffic sign",
+                  "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle",
+                  "bicycle","Void"]
+    color_map = {
+        0: [255, 0, 0],  # Rosso
+        1: [0, 255, 0],  # Verde
+        2: [0, 0, 255],  # Blu
+        3: [255, 255, 0],  # Giallo
+        4: [255, 0, 255],  # Magenta
+        5: [0, 255, 255],  # Ciano
+        6: [128, 0, 0],  # Marrone
+        7: [128, 128, 0],  # Oliva
+        8: [0, 128, 0],  # Verde scuro
+        9: [128, 0, 128],  # Viola
+        10: [0, 128, 128],  # Verde acqua
+        11: [0, 0, 128],  # Blu navy
+        12: [255, 165, 0],  # Arancione
+        13: [255, 192, 203],  # Rosa
+        14: [105, 105, 105],  # Grigio
+        15: [255, 69, 0],  # Rosso arancio
+        16: [173, 255, 47],  # Verde-giallo
+        17: [255, 215, 0],  # Oro
+        18: [218, 165, 32],  # Bronzo
+        19: [64, 224, 208]  # Turchese
+    }
+
+    class_output = np.argmax(output, axis=0)
+
+    colored_image = np.zeros((class_output.shape[0], class_output.shape[1], 3), dtype=np.uint8)
+
+    for cls in color_map:
+        colored_image[class_output == cls] = color_map[cls]
+
+    legend_handles = [mpatches.Patch(color=np.array(color) / 255, label=class_name[i]) for i, color in
+                      color_map.items()]
+
+    plt.figure(figsize=(15, 10))  # Modifica qui per cambiare le dimensioni dell'immagine
+    plt.imshow(colored_image)
+    plt.legend(handles=legend_handles, loc='lower center', ncol=5, bbox_to_anchor=(0.5, -0.15))
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.1)
+    if saveResult == False:
+        plt.show()
+    if saveResult == True:
+        filename = args.modelFilenameDrive
+        nameFile[1] = nameFile[1].replace('_leftImg8bit','')
+        path_save = f'../save/{filename.replace(".pth", "/")}/ImagesCreated/{nameFile[0]}/{nameFile[1]}'
+        if is_drive_connect():
+            if not ".pth" in filename:
+                filename = args.modelFilenameDrive + ".pth"
+            path_drive = args.path_drive + f"ModelsExtra/{args.load_dir_model_mod}/ImagesCreated/"
+            Path(path_drive).mkdir(parents=True, exist_ok=True)
+            dir_name = path_drive + filename.replace(".pth", "/")+f'/ImagesCreated/{nameFile[0]}/'
+            Path(dir_name).mkdir(parents=True, exist_ok=True)
+            path_save = dir_name+nameFile[1]
+        else:
+            Path(f'../save/{filename.replace(".pth", "/")}/ImagesCreated/{nameFile[0]}/').mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(path_save, bbox_inches='tight')

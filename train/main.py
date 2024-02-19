@@ -687,9 +687,7 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()  # because loaded encoder is probably saved in cuda
         if not args.pretrainedEncoder and args.model.casefold().replace(" ", "") == "erfnet":
             pretrainedEnc = next(model.children()).encoder if isinstance(model,torch.nn.DataParallel) else next(model.children())
-        if args.model.casefold().replace(" ", "") == "erfnetbarlowtwins":
-            model = model_file.Net(NUM_CLASSES, encoder=None, batch_size=args.batch_size, backbone=args.backbone)
-        if args.model.casefold().replace(" ", "") == "BiSeNet":
+        if args.model.casefold().replace(" ", "") == "bisenet":
             model = model_file.BiSeNetV1(NUM_CLASSES, 'train')
         if args.model.casefold().replace(" ", "") == "erfnet":
             model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  # Add decoder to encoder
