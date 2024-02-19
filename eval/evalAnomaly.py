@@ -26,6 +26,13 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
 def main():
+
+    path_project = "./"
+    if os.path.exists('/content/AMLProjectBase'):
+        path_project = '/content/AMLProjectBase/'
+    if os.path.basename(os.getcwd()) != "eval":
+        os.chdir(f"{path_project}eval")
+
     parser = ArgumentParser()
     parser.add_argument(
         "--input",
@@ -60,7 +67,7 @@ def main():
     print("Loading weights: " + weightspath)
 
     if args.loadModel.casefold().replace(" ", "") == "bisenet":
-        model = BiSeNetV1(NUM_CLASSES, 'eval')
+        model = BiSeNetV1(NUM_CLASSES,'eval')
     if args.loadModel.casefold().replace(" ", "") == "erfnet":
         model = Net(NUM_CLASSES)
     if args.loadModel.casefold().replace(" ", "") == "enet":
@@ -73,7 +80,7 @@ def main():
         own_state = model.state_dict()
         for name, param in state_dict.items():
             if name not in own_state:
-                if name.startswith("module."):
+                if name.startswith("module.") and (args.loadModel.casefold().replace(" ", "") == "bisenet" and not 'conv_out16' in name and not 'conv_out32' in name):
                     own_state[name.split("module.")[-1]].copy_(param)
                 else:
                     print(name, " not loaded")
@@ -95,6 +102,8 @@ def main():
         images = images.permute(0, 3, 1, 2)
         with torch.no_grad():
             result = model(images)
+            if args.loadModel.casefold().replace(" ", "") == "bisenet":
+                result = result[0]
             if args.backgroundAnomaly:
                 void_probabilities = result[:, 19, :, :]
                 result = torch.zeros_like(result)
@@ -143,10 +152,6 @@ def main():
         if "Streethazard" in pathGT:
             ood_gts = np.where((ood_gts == 14), 255, ood_gts)
             ood_gts = np.where((ood_gts < 20), 0, ood_gts)
-            ood_gts = np.where((ood_gts == 255), 1, ood_gts)
-
-        if (args.backgroundAnomaly):
-            ood_gts = np.where((ood_gts == 1), 0, ood_gts)
             ood_gts = np.where((ood_gts == 255), 1, ood_gts)
 
         if 1 not in np.unique(ood_gts):

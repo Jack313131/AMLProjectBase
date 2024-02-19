@@ -14,6 +14,7 @@ from dataset import cityscapes
 from erfnet import Net
 from transform import Relabel, ToLabel
 from iouEval import iouEval, getColorEntry
+from BiSeNetV1 import BiSeNetV1
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20
@@ -46,8 +47,10 @@ def main(args):
     print("Loading model Original: " + modelpath)
     print("Loading weights Original: " + weightspath)
 
-    modelOriginal = Net(NUM_CLASSES)
-
+    if "bisenet" in args.loadModel.casefold().replace(" ", ""):
+        modelOriginal = BiSeNetV1(NUM_CLASSES, 'train')
+    if "erfnet" in args.model.casefold().replace(" ", ""):
+        modelOriginal = Net(NUM_CLASSES)
 
     if (not args.cpu):
         modelOriginal = torch.nn.DataParallel(modelOriginal).cuda()
@@ -69,10 +72,10 @@ def main(args):
 
     if args.compareModel:
         print("Loading model and weights Mod: " + path_model_mod)
-        modelMod = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
+        modelMod, toFineTuningAdaptingLayer = myutils.remove_mask_from_model_with_pruning(modelMod, torch.load(path_model_mod,map_location=lambda storage, loc: storage))
         print("Model and weights Mod LOADED successfully")
         layer_names = list(modelMod.state_dict().keys())
-        if any('adaptingInput' in name for name in layer_names):
+        if any('adaptingInput' in name for name in layer_names) and toFineTuningAdaptingLayer==True:
             myutils.training_new_layer_adapting(model=modelMod,input_transform_cityscapes=input_transform_cityscapes,
                                             target_transform_cityscapes = target_transform_cityscapes, weight=weight,args=args)
 
@@ -125,13 +128,13 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputsOriginal = modelOriginal(inputs)
+            if "bisenet" in args.loadModel.casefold().replace(" ", ""):
+                outputsOriginal = outputsOriginal[0]
             if args.compareModel:
                 outputsMod = modelMod(inputs)
                 finalOutputMod = outputsMod.max(1)[1].unsqueeze(1)
                 iouEvalValMod.addBatch(finalOutputMod.data, labels)
 
-        if step ==0:
-            myutils.show_prediction_model(outputsOriginal.squeeze(0),filename[0].split('/')[-2:],True,args=args)
 
         finalOutputOriginal = outputsOriginal.max(1)[1].unsqueeze(1)
 
@@ -172,7 +175,8 @@ def main(args):
             iouStr = getColorEntry(iou_classes_mod[i]) + '{:0.2f}'.format(iou_classes_mod[i] * 100) + '\033[0m'
             iou_classes_str_mod.append(iouStr)
 
-    path_result = '../save/'
+    text_model = ""
+    path_result = f'../save/{args.loadModel}'
     class_name = ["Road", "sidewalk","building", "wall", "fence", "pole", "traffic light", "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"]
     if args.compareModel:
         name_modules = " ".join(str(name_module) for name_module in args.listLayerPruning)
@@ -190,7 +194,8 @@ def main(args):
     print(f"Saving result on path : {dir_save_result}")
 
     with open(dir_save_result, 'w') as file:
-        myutils.print_and_save(text_model,file)
+        if text_model != "":
+          myutils.print_and_save(text_model,file)
         myutils.print_and_save("---------------------------------------", file)
         myutils.print_and_save(f"Took {time.time() - start} seconds", file)
         myutils.print_and_save("=======================================", file)
@@ -209,7 +214,7 @@ def main(args):
         iouStr = getColorEntry(iouValOriginal) + '{:0.2f}'.format(iouValOriginal * 100) + '\033[0m'
         if args.compareModel:
             iouModStr = getColorEntry(iouValMod) + '{:0.2f}'.format(iouValMod * 100) + '\033[0m'
-            myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}%", file)
+            myutils.print_and_save(f"MEAN IoU: {iouStr}% (Model Original) --- MEAN IoU: {iouModStr}% (Model Pruned)", file)
             flopsOriginal, flopsPruning, paramsOriginal, paramsPrunning = myutils.compute_difference_flop(modelOriginal=modelOriginal,modelPruning=modelMod)
             myutils.print_and_save( f"\nFLOPs modelOriginal : {flopsOriginal} - FLOPs modelPruning : {flopsPruning} the difference is : {flopsOriginal - flopsPruning}",file)
             myutils.print_and_save(f"Params modelOriginal : {paramsOriginal} - Params modelPruning : {paramsPrunning} the difference is : {paramsOriginal - paramsPrunning}\n",file)
@@ -223,8 +228,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--loadDir', default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
-    parser.add_argument('--loadWeightsPruned', default=None)
-    parser.add_argument("--loadModelPruned",default="")
+    parser.add_argument("--loadModelPruned",default='')
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--subset', default="val")  # can be val or train (must have labels)
     parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/cityscapes/")

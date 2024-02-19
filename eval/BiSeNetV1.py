@@ -145,6 +145,8 @@ class ContextPath(nn.Module):
         feat32_up = self.conv_head32(feat32_up)
 
         feat16_arm = self.arm16(feat16)
+        if feat16_arm.size(2) != feat32_up.size(2):
+            feat32_up = torch.narrow(feat32_up,2,0,feat16_arm.size(2))
         feat16_sum = feat16_arm + feat32_up
         feat16_up = self.up16(feat16_sum)
         feat16_up = self.conv_head16(feat16_up)

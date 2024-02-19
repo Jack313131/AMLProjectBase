@@ -85,7 +85,7 @@ def remove_mask_from_model_with_pruning(model,state_dict):
 
     if isinstance(state_dict,nn.Module):
         print("Model passed is already a completed model ....")
-        return state_dict
+        return state_dict,False
     # Questa linea estrae lo stato attuale del modello, cioè i parametri attuali (pesi, bias, ecc.) del modello. state_dict() è una funzione PyTorch che restituisce un ordinato dizionario (OrderedDict) dei parametri.
     own_state = model.state_dict()
     # Il codice itera attraverso ogni coppia chiave-valore nel dizionario state_dict. name è il nome del parametro (per esempio, il nome di un particolare strato o peso nella rete), e param sono i valori effettivi dei pesi per quel nome.
@@ -121,7 +121,7 @@ def remove_mask_from_model_with_pruning(model,state_dict):
                 # Poiché own_state[name] è un riferimento ai parametri reali del modello, questa operazione aggiorna direttamente i pesi all'interno del modello
                 own_state[name].copy_(param)
 
-    return remove_prunned_channels_from_model(model)
+    return remove_prunned_channels_from_model(model),True
 def remove_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
     return ansi_escape.sub('', text)
@@ -156,36 +156,12 @@ def set_args(__args):
     features_model_input = None
     if hasattr(args, 'loadModel'):
         args.model = args.loadModel.replace('.py','')
-    if hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'model_best' in args.loadWeightsPruned and not 'erfnetPruningType' in args.loadWeightsPruned:
-        features_model_input = args.loadWeightsPruned.replace("model_best","erfnet").replace("non_bottleneck","non bottleneck 1d").replace(".pth","").split("_")
 
-        if features_model_input is not None and args.model is None:
-            args.model = features_model_input[0]
-        if features_model_input is not None and args.typePruning is None:
-            args.typePruning = features_model_input[2]
-        if features_model_input is not None and args.pruning is None:
-            args.pruning = float(int(features_model_input[3])/10)
-        if features_model_input is not None and args.typeNorm is None:
-            args.typeNorm = int(features_model_input[4].replace("L",""))
-        if features_model_input is not None and args.listLayerPruning is None:
-            args.listLayerPruning = [nameModule.replace(" ","_") for nameModule in features_model_input[features_model_input.index('module')+1 : features_model_input.index('Layer')]]
-        if features_model_input is not None and args.listNumLayerPruning is None and features_model_input[features_model_input.index('Layer')+1] !="All":
-            args.listNumLayerPruning = [int(numLayer) for numLayer in [features_model_input[features_model_input.index('Layer')+1:]]]
+    if hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned:
 
-    condition1 = hasattr(args,'loadWeightsPruned') and args.loadWeightsPruned is not None and 'erfnetPruningType' in args.loadWeightsPruned
-    condition2 = hasattr(args,'loadModelPruned') and args.loadModelPruned is not None and 'erfnetPruningType' in args.loadModelPruned
-    if condition1 or condition2:
-
-        split_name = args.loadWeightsPruned.split("/") if condition1 else args.loadModelPruned.split("/")
-        if condition1:
-            args.load_dir_model_mod = split_name[-2]
-            features_model_input = split_name[-1]
-        elif condition2:
-          args.load_dir_model_mod = split_name[-2]
-          features_model_input = split_name[-1].replace('modelPrunnedCompleted/',"").replace("(_conv_bn)","").split("/")[-1]
-
-
-        features_model_input = features_model_input.replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
+        split_name = args.loadModelPruned.replace('modelPrunedCompleted/','').replace('weightsModelPrunned/','').split("/")
+        args.load_dir_model_mod = split_name[0]
+        features_model_input = split_name[-1].replace("(_conv_bn)","").replace("erfnetPruningType", "erfnet").replace("model_best_","").replace("non_bottleneck_1d","non bottleneck 1d").replace("(_conv)","").replace(".pth", "").split("_")
 
         if features_model_input is not None and not hasattr(args,'model'):
             args.model = features_model_input[0]
@@ -201,6 +177,10 @@ def set_args(__args):
             args.listLayerPruning = [nameModule.replace(" ", "_") for nameModule in features_model_input[features_model_input.index('Layer') + 1: features_model_input.index('NumLayerPruning')]]
         if features_model_input is not None and (not hasattr(args,'listNumLayerPruning') or features_model_input[features_model_input.index('NumLayerPruning') + 1] != "ALLayer"):
             args.listNumLayerPruning = [int(numLayer) for numLayer in features_model_input[features_model_input.index('NumLayerPruning') + 1:]]
+        if features_model_input is not None and (not hasattr(args,'listInnerLayerPruning') or args.listInnerLayerPruning is None):
+            args.listInnerLayerPruning = ['conv', 'bn']
+        if features_model_input is not None and (not hasattr(args, 'moduleErfnetPruning') or args.moduleErfnetPruning is None):
+            args.moduleErfnetPruning = []
 
     args.path_drive="/content/drive/MyDrive/AML/"
     args.modelFilenameDrive =define_name_model(args)
@@ -310,10 +290,10 @@ def quantize_model_to_int8(model,input_transform_cityscapes,target_transform_cit
     return model_int8
 
 def define_name_model(args):
-    if args.pruning > 0:
+    if args.pruning is not None and args.pruning > 0:
         typeNorm = f"_Norm_{args.typeNorm}" if args.typeNorm else ""
         namePruning = f"PruningType_{args.typePruning}{typeNorm}_Value_{args.pruning}"
-        if len(args.moduleErfnetPruning) > 0:
+        if hasattr(args,'moduleErfnetPruning') and  len(args.moduleErfnetPruning) > 0:
             namePruning = namePruning + "_Module"
             for module in args.moduleErfnetPruning:
                 namePruning = namePruning + f"_{module}"
@@ -518,7 +498,8 @@ def show_prediction_model(output,nameFile="",saveResult=False,args=None):
         19: [64, 224, 208]  # Turchese
     }
 
-    class_output = np.argmax(output, axis=0)
+    numpy_output = output.to('cpu')
+    class_output = np.argmax(numpy_output, axis=0)
 
     colored_image = np.zeros((class_output.shape[0], class_output.shape[1], 3), dtype=np.uint8)
 
@@ -542,7 +523,7 @@ def show_prediction_model(output,nameFile="",saveResult=False,args=None):
         if is_drive_connect():
             if not ".pth" in filename:
                 filename = args.modelFilenameDrive + ".pth"
-            path_drive = args.path_drive + f"ModelsExtra/{args.load_dir_model_mod}/ImagesCreated/"
+            path_drive = args.path_drive + f"ModelsExtra/{args.load_dir_model_mod}/"
             Path(path_drive).mkdir(parents=True, exist_ok=True)
             dir_name = path_drive + filename.replace(".pth", "/")+f'/ImagesCreated/{nameFile[0]}/'
             Path(dir_name).mkdir(parents=True, exist_ok=True)
@@ -550,4 +531,6 @@ def show_prediction_model(output,nameFile="",saveResult=False,args=None):
         else:
             Path(f'../save/{filename.replace(".pth", "/")}/ImagesCreated/{nameFile[0]}/').mkdir(parents=True, exist_ok=True)
 
-    plt.savefig(path_save, bbox_inches='tight')
+        print(f"Saving images prediction on path : {path_save} ... ")
+        plt.savefig(path_save, bbox_inches='tight')
+        plt.close()
